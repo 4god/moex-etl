@@ -31,16 +31,34 @@ INSERT INTO stg.moex_securities (
     updated_at
 )
 SELECT
-    row_data ->> sec_idx.secid_idx AS secid,
-    row_data ->> sec_idx.shortname_idx AS shortname,
-    row_data ->> sec_idx.boardid_idx AS boardid,
-    NULLIF(row_data ->> sec_idx.lotsize_idx, '')::INTEGER AS lot_size,
-    row_data ->> sec_idx.secname_idx AS secname,
-    row_data ->> sec_idx.regnumber_idx AS regnumber,
+    dedup.secid,
+    dedup.shortname,
+    dedup.boardid,
+    dedup.lot_size,
+    dedup.secname,
+    dedup.regnumber,
     NOW() AS updated_at
-FROM latest_payload, sec_idx,
-     jsonb_array_elements(payload -> 'securities' -> 'data') AS row_data
-WHERE row_data ->> sec_idx.secid_idx IS NOT NULL
+FROM (
+    SELECT
+        parsed.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY parsed.secid
+            ORDER BY (parsed.boardid = 'TQBR') DESC, parsed.boardid
+        ) AS rn
+    FROM (
+        SELECT
+            row_data ->> (sec_idx.secid_idx::INT) AS secid,
+            row_data ->> (sec_idx.shortname_idx::INT) AS shortname,
+            row_data ->> (sec_idx.boardid_idx::INT) AS boardid,
+            NULLIF(row_data ->> (sec_idx.lotsize_idx::INT), '')::INTEGER AS lot_size,
+            row_data ->> (sec_idx.secname_idx::INT) AS secname,
+            row_data ->> (sec_idx.regnumber_idx::INT) AS regnumber
+        FROM latest_payload, sec_idx,
+             jsonb_array_elements(payload -> 'securities' -> 'data') AS row_data
+        WHERE row_data ->> (sec_idx.secid_idx::INT) IS NOT NULL
+    ) AS parsed
+) AS dedup
+WHERE dedup.rn = 1
 ON CONFLICT (secid) DO UPDATE SET
     shortname = EXCLUDED.shortname,
     boardid = EXCLUDED.boardid,
@@ -84,17 +102,36 @@ INSERT INTO stg.moex_marketdata (
     updated_at
 )
 SELECT
-    row_data ->> md_idx.secid_idx AS secid,
-    row_data ->> md_idx.boardid_idx AS boardid,
-    NULLIF(row_data ->> md_idx.last_idx, '')::NUMERIC(18,6) AS last_price,
-    NULLIF(row_data ->> md_idx.prevprice_idx, '')::NUMERIC(18,6) AS prev_price,
-    NULLIF(row_data ->> md_idx.marketprice_idx, '')::NUMERIC(18,6) AS market_price_24h,
-    NULLIF(row_data ->> md_idx.numtrades_idx, '')::INTEGER AS num_trades,
-    NULLIF(row_data ->> md_idx.valtoday_idx, '')::NUMERIC(18,2) AS value_total,
+    dedup.secid,
+    dedup.boardid,
+    dedup.last_price,
+    dedup.prev_price,
+    dedup.market_price_24h,
+    dedup.num_trades,
+    dedup.value_total,
     NOW() AS updated_at
-FROM latest_payload, md_idx,
-     jsonb_array_elements(payload -> 'marketdata' -> 'data') AS row_data
-WHERE row_data ->> md_idx.secid_idx IS NOT NULL
+FROM (
+    SELECT
+        parsed.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY parsed.secid
+            ORDER BY (parsed.boardid = 'TQBR') DESC, parsed.boardid
+        ) AS rn
+    FROM (
+        SELECT
+            row_data ->> (md_idx.secid_idx::INT) AS secid,
+            row_data ->> (md_idx.boardid_idx::INT) AS boardid,
+            NULLIF(row_data ->> (md_idx.last_idx::INT), '')::NUMERIC(18, 6) AS last_price,
+            NULLIF(row_data ->> (md_idx.prevprice_idx::INT), '')::NUMERIC(18, 6) AS prev_price,
+            NULLIF(row_data ->> (md_idx.marketprice_idx::INT), '')::NUMERIC(18, 6) AS market_price_24h,
+            NULLIF(row_data ->> (md_idx.numtrades_idx::INT), '')::INTEGER AS num_trades,
+            NULLIF(row_data ->> (md_idx.valtoday_idx::INT), '')::NUMERIC(18, 2) AS value_total
+        FROM latest_payload, md_idx,
+             jsonb_array_elements(payload -> 'marketdata' -> 'data') AS row_data
+        WHERE row_data ->> (md_idx.secid_idx::INT) IS NOT NULL
+    ) AS parsed
+) AS dedup
+WHERE dedup.rn = 1
 ON CONFLICT (secid) DO UPDATE SET
     boardid = EXCLUDED.boardid,
     last_price = EXCLUDED.last_price,

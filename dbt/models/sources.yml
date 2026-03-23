@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: datamart_src
+    schema: datamart
+    tables:
+      - name: dm_security_snapshot
+  - name: stg_src
+    schema: stg
+    tables:
+      - name: cbr_fx_rates
+      - name: moscow_weather_daily
+  - name: analytics_src
+    schema: analytics
+    tables:
+      - name: dim_moscow_weather_regime_scd2

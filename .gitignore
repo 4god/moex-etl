@@ -4,5 +4,9 @@ __pycache__/
 .DS_Store
 logs/
 metabase-data/
+dbt/target/
+dbt/logs/
+dbt/.user.yml
+docs/sphinx/_build/
 .idea/
 .vscode/

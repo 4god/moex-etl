@@ -1,0 +1,12 @@
+moex_workshop:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: postgres
+      user: etl
+      password: etl
+      port: 5432
+      dbname: workshop
+      schema: analytics
+      threads: 2

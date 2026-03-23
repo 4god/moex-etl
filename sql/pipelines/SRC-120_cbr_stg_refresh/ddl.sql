@@ -1,0 +1,2 @@
+-- DDL is managed in sql/migrations.
+-- Source-specific STG refresh for CBR.

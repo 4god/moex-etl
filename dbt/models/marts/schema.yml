@@ -1,0 +1,61 @@
+version: 2
+
+models:
+  - name: fct_moex_liquidity
+    description: "Базовая витрина ликвидности по бумагам MOEX."
+    columns:
+      - name: trade_date
+        tests:
+          - not_null
+      - name: secid
+        tests:
+          - not_null
+      - name: value_total
+        tests:
+          - not_null
+      - name: num_trades
+        tests:
+          - not_null
+
+  - name: fct_moex_movers
+    description: "Витрина по изменению цены (дневной % change)."
+    columns:
+      - name: trade_date
+        tests:
+          - not_null
+      - name: secid
+        tests:
+          - not_null
+      - name: pct_change
+        tests:
+          - not_null
+
+  - name: fct_cbr_fx_rates
+    description: "Курсы валют ЦБ РФ по дням."
+    columns:
+      - name: rate_date
+        tests:
+          - not_null
+      - name: char_code
+        tests:
+          - not_null
+
+  - name: fct_moscow_weather_daily
+    description: "Дневные погодные показатели по Москве."
+    columns:
+      - name: weather_date
+        tests:
+          - not_null
+      - name: weather_regime
+        tests:
+          - not_null
+
+  - name: fct_moex_weather_snapshot
+    description: "Объединенная витрина MOEX + погодный режим (объединение только в витрине)."
+    columns:
+      - name: trade_date
+        tests:
+          - not_null
+      - name: secid
+        tests:
+          - not_null
