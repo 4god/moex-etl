@@ -121,7 +121,7 @@
 ```bash
 cp .env.example .env
 docker compose build
-docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler
+docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler dbt-docs
 docker compose ps
 ```
 
@@ -132,7 +132,7 @@ docker compose ps
 ```bash
 cp .env.example .env
 sudo docker compose build
-sudo docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler
+sudo docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler dbt-docs
 sudo docker compose ps
 ```
 
@@ -147,7 +147,7 @@ sudo usermod -aG docker $USER
 ```powershell
 Copy-Item .env.example .env
 docker compose build
-docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler
+docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler dbt-docs
 docker compose ps
 ```
 
@@ -156,7 +156,7 @@ docker compose ps
 ```cmd
 copy .env.example .env
 docker compose build
-docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler
+docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler dbt-docs
 docker compose ps
 ```
 
@@ -165,7 +165,7 @@ docker compose ps
 ```bash
 cp .env.example .env
 docker compose build
-docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler
+docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler dbt-docs
 docker compose ps
 ```
 
@@ -174,14 +174,14 @@ docker compose ps
 ### 0) Требования
 
 - Docker Desktop
-- Свободные порты: `5432`, `8080`, `3000`, `8083`, `9092`
+- Свободные порты: `5432`, `8080`, `8081`, `3000`, `8083`, `9092`
 
 ### 1) Подготовка
 
 ```bash
 cp .env.example .env
 docker compose build
-docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler
+docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler dbt-docs
 ```
 
 Проверить, что контейнеры поднялись:
@@ -213,6 +213,10 @@ docker compose ps
 Debezium Connect API:
 - URL: [http://localhost:8083](http://localhost:8083)
 - Проверка статуса: `curl http://localhost:8083/connectors`
+
+dbt Docs:
+- URL: [http://localhost:8081](http://localhost:8081)
+- Поднимается автоматически сервисом `dbt-docs` в общем `docker compose up -d`
 
 ### 3) Проверка слоев в PostgreSQL
 
@@ -427,7 +431,7 @@ docker compose --profile dbt run --rm dbt dbt run --project-dir /usr/app --profi
 docker compose --profile dbt run --rm dbt dbt test --project-dir /usr/app --profiles-dir /usr/app --target dev
 ```
 
-Lineage и документация моделей через dbt docs:
+Lineage и документация моделей через dbt docs (ручной режим, если нужен отдельно):
 
 ```bash
 docker compose --profile dbt run --rm dbt dbt docs generate --project-dir /usr/app --profiles-dir /usr/app --target dev
