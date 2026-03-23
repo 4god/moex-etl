@@ -1,0 +1,5 @@
+CREATE USER airflow WITH PASSWORD 'airflow';
+CREATE DATABASE airflow OWNER airflow;
+
+CREATE USER etl WITH PASSWORD 'etl';
+CREATE DATABASE workshop OWNER etl;
