@@ -1,0 +1,2 @@
+-- DDL is managed in sql/bootstrap (Postgres init).
+-- Source-specific STG refresh for CBR.

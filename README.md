@@ -13,17 +13,6 @@
 
 Подходит для воркшопа на 60 минут и легко воспроизводится через Docker.
 
-## Что увидят студенты
-
-- Как забирать данные из внешнего API по расписанию.
-- Как использовать Kafka как буфер и шину между extract и raw-layer.
-- Как подключать несколько источников через Debezium connectors.
-- Как реализовать историчность измерения через SCD Type 2.
-- Почему хранить `raw` JSON отдельно полезно для отладки и повторной обработки.
-- Как парсить JSON в табличный вид (`stg`) SQL-запросами.
-- Как строить Data Vault (Hub/Link/Satellite) и витрины (`datamart`) поверх него.
-- Как запускать и мониторить пайплайн в Airflow.
-
 ## Архитектура и модель данных
 
 Диаграммы находятся в:
@@ -68,23 +57,23 @@
 │       ├── README.md
 │       └── postgres-source-template.json
 ├── sql/
-│   ├── migrations/
+│   ├── bootstrap/
+│   │   ├── README.md
 │   │   ├── 001_create_databases.sql
 │   │   ├── 010_init_foundation.sql
 │   │   ├── 020_add_kafka_metadata_to_raw.sql
 │   │   └── 030_add_open_meteo_source.sql
-│   ├── pipelines/
-│   │   ├── SRC-110_moex_stg_refresh/
-│   │   ├── SRC-120_cbr_stg_refresh/
-│   │   ├── SRC-130_meteo_stg_refresh/
-│   │   ├── DV-210_vault_load/
-│   │   │   ├── moex/hubs|links|satellites
-│   │   │   ├── cbr/hubs|links|satellites
-│   │   │   └── meteo/hubs|links|satellites
-│   │   ├── DV-310_datamart_publish/
-│   │   └── DV-320_scd2_weather/
 │   └── tasks/
 │       ├── README.md
+│       ├── SRC-110_moex_stg_refresh/
+│       ├── SRC-120_cbr_stg_refresh/
+│       ├── SRC-130_meteo_stg_refresh/
+│       ├── DV-210_vault_load/
+│       │   ├── moex/hubs|links|satellites
+│       │   ├── cbr/hubs|links|satellites
+│       │   └── meteo/hubs|links|satellites
+│       ├── DV-310_datamart_publish/
+│       ├── DV-320_scd2_weather/
 │       └── DE-1234_example_ad_hoc/ (пример one-off задач)
 ├── .env.example
 ├── .gitignore
@@ -344,14 +333,6 @@ order by pct_change desc
 limit 20;
 ```
 
-## Сценарий воркшопа на 60 минут
-
-- `0-10 мин`: архитектура, слои и роль Airflow.
-- `10-20 мин`: запуск проекта через Docker.
-- `20-35 мин`: разбор DAG и raw/stg/datamart SQL.
-- `35-50 мин`: построение дашборда в Metabase.
-- `50-60 мин`: идеи расширения и Q&A.
-
 ## Debezium для нескольких источников
 
 Если нужно добавить еще источники (например, PostgreSQL/MySQL с CDC), используй Debezium Connect:
@@ -395,16 +376,16 @@ curl http://localhost:8083/connectors/postgres-source-demo/status
   - `layer_weather_scd2_build` запускается после `stg.moscow_weather_daily`
   - строит `analytics.dim_moscow_weather_regime_scd2` (SCD Type 2)
 
-Все SQL из автоматизации DAG-и читают из `sql/pipelines/*`.
-Папка `sql/tasks/*` в DAG-ах не используется.
+Все SQL из автоматизации DAG-и читают из подпапок `sql/tasks/*` (например `SRC-110_*`, `DV-210_*`).
+Отдельные one-off задачи — те же `sql/tasks/DE-*` и т.п.; DAG-и их не вызывают.
 
 ## Data Vault структура по источникам
 
 Чтобы модель была читаемой, Vault-логика разложена по источникам:
 
-- `sql/pipelines/DV-210_vault_load/moex/hubs|links|satellites`
-- `sql/pipelines/DV-210_vault_load/cbr/hubs|links|satellites`
-- `sql/pipelines/DV-210_vault_load/meteo/hubs|links|satellites`
+- `sql/tasks/DV-210_vault_load/moex/hubs|links|satellites`
+- `sql/tasks/DV-210_vault_load/cbr/hubs|links|satellites`
+- `sql/tasks/DV-210_vault_load/meteo/hubs|links|satellites`
 
 Объединение источников происходит только на правилах Data Vault (через общие hub/link) и в витринах/datamart.
 
@@ -511,7 +492,9 @@ git remote add origin <your-github-repo-url>
 git push -u origin workshop/moex-etl
 ```
 
-## Идеи усложнения (домашка)
+## Дополнительные задания
+
+Опциональные направления для самостоятельной практики поверх воркшопа:
 
 - Добавить инкрементальную загрузку с watermark.
 - Историзировать витрины (SCD2 / snapshots).

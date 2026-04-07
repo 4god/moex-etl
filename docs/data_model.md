@@ -98,10 +98,10 @@ erDiagram
 
 Vault SQL разложен по source-папкам для прозрачности:
 
-- `sql/pipelines/DV-210_vault_load/moex/hubs|links|satellites`
-- `sql/pipelines/DV-210_vault_load/cbr/hubs|links|satellites`
-- `sql/pipelines/DV-210_vault_load/meteo/hubs|links|satellites`
+- `sql/tasks/DV-210_vault_load/moex/hubs|links|satellites`
+- `sql/tasks/DV-210_vault_load/cbr/hubs|links|satellites`
+- `sql/tasks/DV-210_vault_load/meteo/hubs|links|satellites`
 
 Для нового источника добавляется отдельная папка по тому же шаблону:
 
-- `sql/pipelines/DV-210_vault_load/<new_source>/hubs|links|satellites`
+- `sql/tasks/DV-210_vault_load/<new_source>/hubs|links|satellites`

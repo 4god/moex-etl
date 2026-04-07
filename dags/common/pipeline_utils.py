@@ -96,9 +96,9 @@ def consume_raw_to_postgres(topic: str, table: str, group_id: str) -> int:
 
 
 def run_pipeline_sql(pipeline_folder: str) -> None:
-    """Execute SQL scripts from one pipeline folder (root + nested)."""
+    """Execute SQL scripts from one task folder under sql/tasks (root + nested)."""
     hook = PostgresHook(postgres_conn_id="dwh")
-    base_path = f"/opt/airflow/sql/pipelines/{pipeline_folder}"
+    base_path = f"/opt/airflow/sql/tasks/{pipeline_folder}"
 
     if not os.path.exists(base_path):
         return
