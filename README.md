@@ -524,26 +524,116 @@ git push -u origin workshop/moex-etl
 
 В репозитории есть workflow [`.github/workflows/deploy-vm.yml`](.github/workflows/deploy-vm.yml): при **push** в ветку `workshop/moex-etl` (в том числе после **merge PR**) GitHub Actions по SSH заходит на VPS, делает `git pull` и `docker compose up`.
 
-### Однократная настройка на сервере
+### Шаг 1. Отдельная SSH-пара только для деплоя (на вашем компьютере)
 
-- Создайте пользователя для деплоя (например `deploy`), без лишних прав.
-- Клонируйте репозиторий в фиксированный путь и перейдите на ветку:
-  `git clone … && cd moex-etl && git checkout workshop/moex-etl`
-- Убедитесь, что этот пользователь может выполнять `docker compose` (группа `docker` или `sudo` только под ограниченные команды — по вашей политике).
-- Добавьте на сервер **публичный** ключ, парный тому, что положите в GitHub Secret `VM_SSH_KEY` (лучше отдельная пара «только деплой», не ваш личный ключ).
+Не используйте личный `~/.ssh/id_rsa`. Создайте новую пару:
 
-### Настройка в GitHub (Settings → Secrets and variables → Actions)
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/github_deploy_moex_etl -C "github-actions-deploy-moex-etl" -N ""
+```
 
-| Тип | Имя | Содержимое |
-|-----|-----|------------|
-| Secret | `VM_HOST` | IP или hostname VPS |
-| Secret | `VM_USER` | SSH-пользователь (например `deploy`) |
-| Secret | `VM_SSH_KEY` | Приватный ключ PEM (весь файл, включая `BEGIN` / `END`) |
-| Variable | `VM_DEPLOY_PATH` | Абсолютный путь к клону, например `/home/deploy/moex-etl` |
+Появятся два файла:
 
-Ручной прогон без push: вкладка **Actions** → workflow **Deploy to workshop VM** → **Run workflow**.
+- **`~/.ssh/github_deploy_moex_etl`** — **приватный** → позже целиком в GitHub Secret `VM_SSH_KEY`.
+- **`~/.ssh/github_deploy_moex_etl.pub`** — **публичный** → на сервер в `authorized_keys`.
 
-Студенты при этом **клонируют к себе** и шлют изменения через **fork + Pull Request** в вашу ветку `workshop/moex-etl`; после merge деплой запускается сам.
+Показать публичный ключ (его одной строкой копируете на VPS):
+
+```bash
+cat ~/.ssh/github_deploy_moex_etl.pub
+```
+
+### Шаг 2. Пользователь на VPS и публичный ключ
+
+Зайдите на VM под пользователем с `sudo` (например `user1`). Дальше пример для пользователя **`deploy`** — имя можно заменить на своё.
+
+```bash
+sudo adduser deploy
+sudo usermod -aG docker deploy
+sudo mkdir -p /home/deploy/.ssh
+sudo nano /home/deploy/.ssh/authorized_keys
+```
+
+Вставьте **одну строку** из `github_deploy_moex_etl.pub`, сохраните. Права:
+
+```bash
+sudo chown -R deploy:deploy /home/deploy/.ssh
+sudo chmod 700 /home/deploy/.ssh
+sudo chmod 600 /home/deploy/.ssh/authorized_keys
+```
+
+**Уже есть папка `moex-etl`** (например вы клонировали под `user1` в `~/moex-etl`) — пусть деплой идёт **туда же**. Узнайте абсолютный путь:
+
+```bash
+realpath ~/moex-etl
+# пример: /home/user1/moex-etl
+```
+
+Выдайте пользователю **`deploy`** права на этот каталог (чтобы `git pull` и `docker compose` работали от его имени):
+
+```bash
+sudo chown -R deploy:deploy /home/user1/moex-etl
+```
+
+(Подставьте свой путь вместо `/home/user1/moex-etl`.)
+
+Настройте `git` внутри репозитория под `deploy`: зайдите `sudo su - deploy`, перейдите в `moex-etl`, проверьте ветку и `remote`:
+
+```bash
+sudo su - deploy
+cd /home/user1/moex-etl
+git remote -v
+git checkout workshop/moex-etl
+```
+
+Для **`git pull`** с GitHub у пользователя `deploy` должен быть доступ к репо ([Deploy key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys) read-only в настройках репозитория + ключ в `~deploy/.ssh`, или публичный репозиторий).
+
+**Переменная `VM_DEPLOY_PATH`** в GitHub должна быть **именно этим абсолютным путём**, например `/home/user1/moex-etl` — без завершающего `/`.
+
+Если репозитория на сервере ещё нет — тогда клонируйте от имени `deploy` в нужное место и используйте этот путь как `VM_DEPLOY_PATH`:
+
+```bash
+sudo su - deploy
+cd ~
+git clone git@github.com:ВАШ_ЛОГИН/moex-etl.git moex-etl
+cd moex-etl && git checkout workshop/moex-etl
+```
+
+Проверка SSH **с вашего ПК** (GitHub Actions использует тот же тип входа):
+
+```bash
+ssh -i ~/.ssh/github_deploy_moex_etl deploy@192.144.14.88
+```
+
+Должно пустить без пароля. Подставьте свой IP и пользователя.
+
+### Шаг 3. Секреты и переменные в GitHub
+
+Откройте репозиторий на GitHub → **Settings** → **Secrets and variables** → **Actions**.
+
+**Secrets** → **New repository secret** (три штуки):
+
+| Name | Value |
+|------|--------|
+| `VM_HOST` | IP VPS, например `192.144.14.88` (без `http://`, без порта, если SSH на 22). |
+| `VM_USER` | SSH-логин, например `deploy`. |
+| `VM_SSH_KEY` | **Весь** текст приватного ключа: откройте `~/.ssh/github_deploy_moex_etl`, скопируйте включая строки `-----BEGIN ... KEY-----` и `-----END ... KEY-----`, вставьте в поле секрета. |
+
+**Variables** (не Secrets) → вкладка **Variables** → **New repository variable**:
+
+| Name | Value |
+|------|--------|
+| `VM_DEPLOY_PATH` | Абсолютный путь к **вашей** уже существующей папке `moex-etl`, например `/home/user1/moex-etl` (рядом с ней или внутри должен лежать `docker-compose.yml`). |
+
+Имена **`VM_HOST`**, **`VM_USER`**, **`VM_SSH_KEY`**, **`VM_DEPLOY_PATH`** должны совпадать с тем, что читает workflow (регистр важен).
+
+### Шаг 4. Проверка workflow
+
+**Actions** → **Deploy to workshop VM** → **Run workflow** → выберите ветку `workshop/moex-etl` → **Run workflow**. В логах job смотрите шаг SSH; при ошибке «Permission denied» — ключ или `VM_USER`; при «no such file» — неверный `VM_DEPLOY_PATH`.
+
+После настройки студенты шлют PR в `workshop/moex-etl`; после merge деплой запускается сам.
+
+**Безопасность:** приватный ключ из `VM_SSH_KEY` храните только в GitHub Secrets; файл `github_deploy_moex_etl` на диске не коммитьте в git. Если ключ когда-либо утёк — сгенерируйте новую пару и замените секрет и строку в `authorized_keys` на сервере.
 
 ## Дополнительные задания
 
