@@ -1,0 +1,41 @@
+# Автодеплой на вашу VPS при push в ветку (например после merge PR от студентов).
+#
+# Настройка в GitHub: Settings → Secrets and variables → Actions
+#   Secrets:  VM_HOST, VM_USER, VM_SSH_KEY (приватный ключ, PEM)
+#   Variables: VM_DEPLOY_PATH (абсолютный путь к клону на сервере, напр. /home/deploy/moex-etl)
+#
+# На VM один раз: git clone, ветка workshop/moex-etl, remote origin на этот репозиторий.
+# Рекомендуется отдельный Linux-пользователь + Deploy Key (read-only) или SSH-ключ только для деплоя.
+
+name: Deploy to workshop VM
+
+on:
+  push:
+    branches:
+      - workshop/moex-etl
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-workshop-vm
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH — git pull и docker compose
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ vars.VM_DEPLOY_PATH }}"
+            git fetch origin
+            git checkout workshop/moex-etl
+            git pull --ff-only origin workshop/moex-etl
+            docker compose build
+            docker compose --profile bi up -d
+            docker compose exec -T airflow-scheduler airflow dags reserialize || true

@@ -207,21 +207,33 @@ dbt Docs:
 - URL: [http://localhost:8081](http://localhost:8081)
 - Поднимается автоматически сервисом `dbt-docs` в общем `docker compose up -d`
 
-**Если в UI нет ни одного DAG:** после правок в `airflow/requirements.txt` пересоберите образ и перезапустите webserver и scheduler:
+**Если в UI нет ни одного DAG:**
+
+1. **Scheduler обязан быть запущен** — именно он разбирает файлы в `dags/`. Проверка: `docker compose ps` → `airflow-scheduler` в статусе **Up**. Если **Exited** — смотрите `docker compose logs airflow-scheduler`.
+
+2. **Файлы DAG на хосте** — команды из **корня репозитория** (рядом с `docker-compose.yml` и папкой `dags/`):
 
 ```bash
-docker compose build airflow-webserver airflow-scheduler airflow-init
+ls dags/*.py
+docker compose exec airflow-webserver ls -la /opt/airflow/dags
+```
+
+Если во второй команде почти пусто — вы поднимаете compose не из того каталога или репозиторий без `dags/`.
+
+3. **Образ Airflow с зависимостями** (`requests`, провайдер Postgres и т.д.) — после `git pull` или смены `airflow/requirements.txt` пересоберите и перезапустите:
+
+```bash
+docker compose build --no-cache airflow-webserver airflow-scheduler airflow-init
 docker compose up -d airflow-init airflow-webserver airflow-scheduler
 ```
 
-Проверка ошибок импорта:
+4. **Ошибки импорта Python** (тогда DAG-файлы не попадают в UI):
 
 ```bash
 docker compose exec airflow-webserver airflow dags list-import-errors
+docker compose exec airflow-webserver airflow dags list
 docker compose logs --tail=100 airflow-scheduler
 ```
-
-Убедитесь, что в контейнер смонтирован каталог `./dags` из корня репозитория (как в `docker-compose.yml`).
 
 ### 3) Проверка слоев в PostgreSQL
 
@@ -507,6 +519,31 @@ git commit -m "Add MOEX ETL workshop project"
 git remote add origin <your-github-repo-url>
 git push -u origin workshop/moex-etl
 ```
+
+## CI: автодеплой на виртуальную машину
+
+В репозитории есть workflow [`.github/workflows/deploy-vm.yml`](.github/workflows/deploy-vm.yml): при **push** в ветку `workshop/moex-etl` (в том числе после **merge PR**) GitHub Actions по SSH заходит на VPS, делает `git pull` и `docker compose up`.
+
+### Однократная настройка на сервере
+
+- Создайте пользователя для деплоя (например `deploy`), без лишних прав.
+- Клонируйте репозиторий в фиксированный путь и перейдите на ветку:
+  `git clone … && cd moex-etl && git checkout workshop/moex-etl`
+- Убедитесь, что этот пользователь может выполнять `docker compose` (группа `docker` или `sudo` только под ограниченные команды — по вашей политике).
+- Добавьте на сервер **публичный** ключ, парный тому, что положите в GitHub Secret `VM_SSH_KEY` (лучше отдельная пара «только деплой», не ваш личный ключ).
+
+### Настройка в GitHub (Settings → Secrets and variables → Actions)
+
+| Тип | Имя | Содержимое |
+|-----|-----|------------|
+| Secret | `VM_HOST` | IP или hostname VPS |
+| Secret | `VM_USER` | SSH-пользователь (например `deploy`) |
+| Secret | `VM_SSH_KEY` | Приватный ключ PEM (весь файл, включая `BEGIN` / `END`) |
+| Variable | `VM_DEPLOY_PATH` | Абсолютный путь к клону, например `/home/deploy/moex-etl` |
+
+Ручной прогон без push: вкладка **Actions** → workflow **Deploy to workshop VM** → **Run workflow**.
+
+Студенты при этом **клонируют к себе** и шлют изменения через **fork + Pull Request** в вашу ветку `workshop/moex-etl`; после merge деплой запускается сам.
 
 ## Дополнительные задания
 
