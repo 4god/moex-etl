@@ -125,7 +125,8 @@ services:
     container_name: workshop-metabase
     profiles: ["bi"]
     ports:
-      - "3000:3000"
+      # Host 8085 — внутри контейнера Metabase слушает 3000
+      - "8085:3000"
     volumes:
       - ./metabase-data:/metabase-data
     depends_on:

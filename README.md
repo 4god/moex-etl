@@ -163,7 +163,7 @@ docker compose ps
 ### 0) Требования
 
 - Docker Desktop
-- Свободные порты: `5432`, `8080`, `8081`, `3000`, `8083`, `9092`
+- Свободные порты: `5432`, `8080`, `8081`, `8085` (Metabase), `8083`, `9092`
 
 ### 1) Подготовка
 
@@ -207,6 +207,22 @@ dbt Docs:
 - URL: [http://localhost:8081](http://localhost:8081)
 - Поднимается автоматически сервисом `dbt-docs` в общем `docker compose up -d`
 
+**Если в UI нет ни одного DAG:** после правок в `airflow/requirements.txt` пересоберите образ и перезапустите webserver и scheduler:
+
+```bash
+docker compose build airflow-webserver airflow-scheduler airflow-init
+docker compose up -d airflow-init airflow-webserver airflow-scheduler
+```
+
+Проверка ошибок импорта:
+
+```bash
+docker compose exec airflow-webserver airflow dags list-import-errors
+docker compose logs --tail=100 airflow-scheduler
+```
+
+Убедитесь, что в контейнер смонтирован каталог `./dags` из корня репозитория (как в `docker-compose.yml`).
+
 ### 3) Проверка слоев в PostgreSQL
 
 ```bash
@@ -228,7 +244,7 @@ docker compose exec postgres psql -U etl -d workshop -c "SELECT city_code, versi
 docker compose --profile bi up -d metabase
 ```
 
-- URL: [http://localhost:3000](http://localhost:3000)
+- URL: [http://localhost:8085](http://localhost:8085) (снаружи хоста; в контейнере Metabase по-прежнему порт 3000)
 - При первом входе пройти onboarding и добавить БД PostgreSQL:
   - Host: `postgres`
   - Port: `5432`
