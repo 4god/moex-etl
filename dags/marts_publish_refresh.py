@@ -8,21 +8,19 @@ from common.pipeline_utils import DS_DATAMART_READY, DS_VAULT_READY, run_pipelin
 
 
 @dag(
-    dag_id="layer_datamart_publish",
-    description="Datamart layer DAG triggered by vault dataset",
+    dag_id="marts_publish_refresh",
+    description="Публикация витрин datamart после успешной загрузки vault",
     start_date=datetime(2024, 1, 1),
     schedule=[DS_VAULT_READY],
     catchup=False,
-    tags=["workshop", "layer", "datamart"],
+    tags=["workshop", "datamart"],
 )
-def layer_datamart_publish() -> None:
-    """Publish data marts after Vault load is complete."""
-
+def marts_publish_refresh() -> None:
     @task(outlets=[DS_DATAMART_READY])
-    def build_datamart_layer() -> None:
+    def run_datamart_sql() -> None:
         run_pipeline_sql("DV-310_datamart_publish")
 
-    build_datamart_layer()
+    run_datamart_sql()
 
 
-dag = layer_datamart_publish()
+dag = marts_publish_refresh()

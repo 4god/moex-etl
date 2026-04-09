@@ -17,13 +17,14 @@ TOPIC_MOEX_RAW = "raw.moex.payloads"
 TOPIC_CBR_RAW = "raw.cbr.payloads"
 TOPIC_OPEN_METEO_RAW = "raw.open_meteo.payloads"
 
-# Dataset contracts between DAG layers.
+# Dataset contracts between pipelines (Airflow Assets).
 DS_STG_MOEX_READY = Dataset("dataset://stg/moex")
 DS_STG_CBR_READY = Dataset("dataset://stg/cbr")
 DS_STG_METEO_READY = Dataset("dataset://stg/meteo")
 DS_VAULT_READY = Dataset("dataset://vault/loaded")
 DS_DATAMART_READY = Dataset("dataset://datamart/published")
-DS_WEATHER_SCD2_READY = Dataset("dataset://analytics/weather_scd2")
+# История режимов погоды в analytics (тип 2 по Кимбаллу — см. DV-320 SQL и dbt).
+DS_WEATHER_ANALYTICS_DIM_READY = Dataset("dataset://analytics/weather_dimension")
 
 
 def _ensure_raw_kafka_metadata_columns(table: str) -> None:
@@ -134,3 +135,15 @@ def run_pipeline_sql(pipeline_folder: str) -> None:
             continue
 
         hook.run(sql_text)
+
+
+def persist_open_data_snapshot(source_key: str, endpoint: str, payload_obj: object) -> None:
+    """Append one JSON payload from an open HTTP/API source into raw.open_data_snapshots."""
+    hook = PostgresHook(postgres_conn_id="dwh")
+    hook.run(
+        """
+        INSERT INTO raw.open_data_snapshots (source_key, endpoint, payload)
+        VALUES (%s, %s, %s::jsonb)
+        """,
+        parameters=(source_key, endpoint, json.dumps(payload_obj)),
+    )

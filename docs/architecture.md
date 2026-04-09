@@ -13,7 +13,7 @@ flowchart LR
     J[Other DB sources<br/>CDC] --> DBC[Debezium Connect]
     DBC --> K
     C --> K[(Kafka topics<br/>raw.moex.payloads<br/>raw.cbr.payloads<br/>raw.open_meteo.payloads<br/>raw.<new_source>.payloads<br/>+ CDC topics)]
-    C2[Airflow Layer DAGs<br/>triggered by datasets] --> D
+    C2[Airflow DAGs<br/>datasets + open data] --> D
     K --> D[(Postgres raw/stg/vault/datamart)]
     E[dbt container<br/>run + test] --> D
     D --> F[Metabase]
@@ -42,10 +42,12 @@ flowchart LR
     S2["src_cbr_ingestion"] --> D2["Dataset: stg/cbr"]
     S3["src_meteo_ingestion"] --> D3["Dataset: stg/meteo"]
     S4["src_<new_source>_ingestion"] --> D5["Dataset: stg/<new_source>"]
-    D1 --> L1["layer_vault_load"]
+    D1 --> L1["vault_batch_load"]
     D2 --> L1
-    D5 --> L4["layer_<source>_pipeline (optional)"]
+    D5 --> L4["optional downstream DAG"]
     L1 --> D4["Dataset: vault/loaded"]
-    D4 --> L2["layer_datamart_publish"]
-    D3 --> L3["layer_weather_scd2_build"]
+    D4 --> L2["marts_publish_refresh"]
+    D3 --> L3["weather_regime_dimension_build"]
 ```
+
+Отдельно по расписанию: DAG `ods_*` подтягивают публичные REST в `raw.open_data_snapshots` (см. `config/open_data_sources.example.yaml`).

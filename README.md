@@ -26,15 +26,21 @@
 ├── airflow/
 │   ├── Dockerfile
 │   └── requirements.txt
+├── config/
+│   ├── README.md
+│   └── open_data_sources.example.yaml
 ├── dags/
 │   ├── common/
-│   │   └── pipeline_utils.py
+│   │   ├── pipeline_utils.py
+│   │   └── open_data_settings.py
 │   ├── source_moex_pipeline.py
 │   ├── source_cbr_pipeline.py
 │   ├── source_meteo_pipeline.py
-│   ├── layer_vault_pipeline.py
-│   ├── layer_datamart_pipeline.py
-│   └── layer_weather_scd2_pipeline.py
+│   ├── vault_batch_load.py
+│   ├── marts_publish_refresh.py
+│   ├── weather_regime_dimension_build.py
+│   ├── ods_economic_indicator_fetch.py
+│   └── ods_territory_reference_fetch.py
 ├── docs/
 │   ├── architecture.md
 │   ├── data_model.md
@@ -62,7 +68,8 @@
 │   │   ├── 001_create_databases.sql
 │   │   ├── 010_init_foundation.sql
 │   │   ├── 020_add_kafka_metadata_to_raw.sql
-│   │   └── 030_add_open_meteo_source.sql
+│   │   ├── 030_add_open_meteo_source.sql
+│   │   └── 040_open_data_landing.sql
 │   └── tasks/
 │       ├── README.md
 │       ├── SRC-110_moex_stg_refresh/
@@ -193,9 +200,10 @@ docker compose ps
 
 Дальше layer DAG-и запускаются автоматически через Airflow Datasets (data assets):
 
-- `layer_vault_load` (после обновления STG из MOEX и CBR)
-- `layer_datamart_publish` (после загрузки vault)
-- `layer_weather_scd2_build` (после обновления meteo STG)
+- `vault_batch_load` (после обновления STG из MOEX и CBR)
+- `marts_publish_refresh` (после загрузки vault)
+- `weather_regime_dimension_build` (после обновления meteo STG)
+- `ods_economic_indicator_fetch` / `ods_territory_reference_fetch` (открытые REST → `raw.open_data_snapshots`, конфиг в `config/`)
 
 После успешного прогона DAG можно отдельно запустить dbt-модели и проверки качества.
 
@@ -394,15 +402,12 @@ curl http://localhost:8083/connectors/postgres-source-demo/status
 - `dags/source_meteo_pipeline.py`:
   - `src_meteo_ingestion`: `Open-Meteo API -> Kafka -> raw.open_meteo_payloads -> stg.moscow_weather_daily`
 
-### Layer DAG-ы (запуск по data assets)
+### DAG-и по data assets и открытым API
 
-- `dags/layer_vault_pipeline.py`:
-  - `layer_vault_load` запускается по Dataset-триггерам после `stg`-обновлений MOEX + CBR
-- `dags/layer_datamart_pipeline.py`:
-  - `layer_datamart_publish` запускается после `vault`-слоя
-- `dags/layer_weather_scd2_pipeline.py`:
-  - `layer_weather_scd2_build` запускается после `stg.moscow_weather_daily`
-  - строит `analytics.dim_moscow_weather_regime_scd2` (SCD Type 2)
+- `dags/vault_batch_load.py` — `vault_batch_load` после готовности STG MOEX и CBR
+- `dags/marts_publish_refresh.py` — `marts_publish_refresh` после загрузки vault
+- `dags/weather_regime_dimension_build.py` — `weather_regime_dimension_build` после `stg.moscow_weather_daily`; витрина `analytics.dim_moscow_weather_regime_scd2` (тип 2 по Кимбаллу — см. SQL в `DV-320_*`)
+- `dags/ods_economic_indicator_fetch.py`, `dags/ods_territory_reference_fetch.py` — публичные REST, параметры в `config/open_data_sources.example.yaml` (копия `open_data_sources.yaml` при необходимости)
 
 Все SQL из автоматизации DAG-и читают из подпапок `sql/tasks/*` (например `SRC-110_*`, `DV-210_*`).
 Отдельные one-off задачи — те же `sql/tasks/DE-*` и т.п.; DAG-и их не вызывают.

@@ -18,17 +18,17 @@ Airflow TaskFlow DAGs
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: layer_vault_pipeline
+.. automodule:: vault_batch_load
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: layer_datamart_pipeline
+.. automodule:: marts_publish_refresh
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: layer_weather_scd2_pipeline
+.. automodule:: weather_regime_dimension_build
    :members:
    :undoc-members:
    :show-inheritance:

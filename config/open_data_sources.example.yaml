@@ -1,0 +1,26 @@
+# Скопируйте в open_data_sources.yaml при необходимости переопределений.
+# Локальный open_data_sources.yaml в .gitignore.
+
+# Опциональные секреты для API (профили называются вручную в sources).
+credentials: {}
+
+sources:
+  # Макропоказатель: ВВП (текущий US$) — World Bank Open Data (публичный REST).
+  national_accounts_gdp:
+    kind: rest_json
+    base_url: "https://api.worldbank.org/v2/country/{country}/indicator/{indicator}"
+    query_params:
+      format: json
+      date: "2010:2020"
+      per_page: 100
+    path_params:
+      country: RU
+      indicator: NY.GDP.MKTP.CD
+
+  # Справочник по странам — REST Countries (публичный REST).
+  territory_catalog:
+    kind: rest_json
+    url: "https://restcountries.com/v3.1/independent"
+    query_params:
+      status: "true"
+      fields: "name,capital,population,region"
