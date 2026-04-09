@@ -1,0 +1,9 @@
+{
+  "kafka_bootstrap_servers": "kafka:9092",
+  "open_data_config_dir": "/opt/airflow/config",
+  "workshop_env": "local",
+  "kafka_connect_url": "http://kafka-connect:8083",
+  "kafka_ui_url_internal": "http://kafka-ui:8080",
+  "kafka_ui_url_host": "http://localhost:8090",
+  "dbt_project_dir": "/opt/airflow/dbt"
+}

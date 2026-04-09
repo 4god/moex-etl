@@ -24,3 +24,25 @@ sources:
     query_params:
       status: "true"
       fields: "name,capital,population,region"
+
+  # ООН — справочник локаций (UN Population Data Portal API, JSON).
+  un_population_locations:
+    kind: rest_json
+    url: "https://population.un.org/dataportalapi/api/v1/locations"
+    query_params:
+      pageSize: 100
+
+  # Eurostat — пример набора в формате JSON (официальная статистика ЕС).
+  eurostat_sdg_sample:
+    kind: rest_json
+    url: "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/sdg_08_10"
+    query_params:
+      format: JSON
+      lang: en
+
+  # NASA — Astronomy Picture of the Day (публичный REST; при лимитах замените DEMO_KEY).
+  nasa_apod:
+    kind: rest_json
+    url: "https://api.nasa.gov/planetary/apod"
+    query_params:
+      api_key: "DEMO_KEY"

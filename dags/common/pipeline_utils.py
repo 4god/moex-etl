@@ -19,6 +19,7 @@ TOPIC_OPEN_METEO_RAW = "raw.open_meteo.payloads"
 # Открытые REST (ODS DAG-и): тот же контракт сообщения, что у MOEX/CBR (source, endpoint, payload).
 TOPIC_ODS_ECONOMIC_RAW = "raw.ods.economic.payloads"
 TOPIC_ODS_TERRITORY_RAW = "raw.ods.territory.payloads"
+TOPIC_ODS_PUBLIC_RAW = "raw.ods.public.payloads"
 
 # Dataset contracts between pipelines (Airflow Assets).
 DS_STG_MOEX_READY = Dataset("dataset://stg/moex")

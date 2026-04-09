@@ -83,7 +83,7 @@
 ```bash
 cp .env.example .env
 docker compose build
-docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler dbt-docs
+docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler airflow-triggerer dbt-docs
 docker compose ps
 ```
 
@@ -95,7 +95,7 @@ docker compose ps
 ```bash
 cp .env.example .env
 docker compose build
-docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler dbt-docs
+docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler airflow-triggerer dbt-docs
 docker compose ps
 ```
 
@@ -104,7 +104,7 @@ docker compose ps
 ```bash
 cp .env.example .env
 sudo docker compose build
-sudo docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler dbt-docs
+sudo docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler airflow-triggerer dbt-docs
 sudo docker compose ps
 ```
 
@@ -113,7 +113,7 @@ sudo docker compose ps
 ```powershell
 Copy-Item .env.example .env
 docker compose build
-docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler dbt-docs
+docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler airflow-triggerer dbt-docs
 docker compose ps
 ```
 
@@ -122,7 +122,7 @@ docker compose ps
 ```cmd
 copy .env.example .env
 docker compose build
-docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler dbt-docs
+docker compose up -d kafka kafka-connect postgres airflow-init airflow-webserver airflow-scheduler airflow-triggerer dbt-docs
 docker compose ps
 ```
 
@@ -143,21 +143,57 @@ docker compose ps
 | Kafka UI | [http://localhost:8090](http://localhost:8090) | Сервис `kafka-ui` в compose |
 | dbt docs | [http://localhost:8081](http://localhost:8081) | Сервис `dbt-docs` |
 
+<details>
+<summary>Airflow: Connections и Variables из Docker</summary>
+
+Основной источник — блок `environment` у `x-airflow-common` в `docker-compose.yml` (переменные `AIRFLOW_CONN_*` и `AIRFLOW_VAR_*` попадают во все контейнеры Airflow).
+
+**Connections** (в UI: Admin → Connections; идентификатор — нижний регистр имени после префикса):
+
+| Conn id | Env в compose |
+|---------|----------------|
+| `dwh` | `AIRFLOW_CONN_DWH` |
+| `sourcedb` | `AIRFLOW_CONN_SOURCEDB` |
+| `http_open_meteo` | `AIRFLOW_CONN_HTTP_OPEN_METEO` |
+| `postgres_browse` | `AIRFLOW_CONN_POSTGRES_BROWSE` (опционально, postgres-суперпользователь для отладки) |
+
+**Variables** (через `Variable.get` и в UI; имя ключа — суффикс после `AIRFLOW_VAR_` в нижнем регистре с подчёркиваниями, например `KAFKA_BOOTSTRAP_SERVERS` → `kafka_bootstrap_servers`):
+
+| Ключ (пример) | Env |
+|----------------|-----|
+| `kafka_bootstrap_servers` | `AIRFLOW_VAR_KAFKA_BOOTSTRAP_SERVERS` |
+| `open_data_config_dir` | `AIRFLOW_VAR_OPEN_DATA_CONFIG_DIR` |
+| `workshop_env` | `AIRFLOW_VAR_WORKSHOP_ENV` |
+| `kafka_connect_url` | `AIRFLOW_VAR_KAFKA_CONNECT_URL` |
+| `kafka_ui_url_internal` | `AIRFLOW_VAR_KAFKA_UI_URL_INTERNAL` |
+| `kafka_ui_url_host` | `AIRFLOW_VAR_KAFKA_UI_URL_HOST` |
+| `dbt_project_dir` | `AIRFLOW_VAR_DBT_PROJECT_DIR` |
+
+Файл `config/airflow_variables.json` дублирует значения для ручного импорта в БД метаданных (например, если Airflow запущен без этих env):
+
+```bash
+docker compose exec airflow-webserver airflow variables import /opt/airflow/config/airflow_variables.json
+```
+
+Учти: при активных `AIRFLOW_VAR_*` приоритет у переменных окружения; импорт в БД имеет смысл для окружений без compose.
+
+</details>
+
 **Источники (запустить вручную в UI):** `src_moex_ingestion`, `src_cbr_ingestion`, `src_meteo_ingestion`.
 
-**Дальше по Datasets:** `vault_batch_load` → `marts_publish_refresh`; `weather_regime_dimension_build` (meteo); опционально `ods_economic_indicator_fetch`, `ods_territory_reference_fetch`; после datamart — **`dbt_analytics_build`** (`dbt run` / `dbt test`).
+**Дальше по Datasets:** `vault_batch_load` → `marts_publish_refresh`; `weather_regime_dimension_build` (meteo); опционально `ods_*_fetch` (в т.ч. World Bank, REST Countries, Eurostat, ООН, NASA APOD, Open-Meteo deferrable — см. `dags/ods_*.py`); после datamart — **`dbt_analytics_build`** (`dbt run` / `dbt test`).
 
 После `git pull` или смены `airflow/requirements.txt` пересоберите Airflow:
 
 ```bash
-docker compose build --no-cache airflow-webserver airflow-scheduler airflow-init
-docker compose up -d airflow-init airflow-webserver airflow-scheduler
+docker compose build --no-cache airflow-webserver airflow-scheduler airflow-triggerer airflow-init
+docker compose up -d airflow-init airflow-webserver airflow-scheduler airflow-triggerer
 ```
 
 <details>
 <summary>Нет DAG в UI — что проверить</summary>
 
-1. `airflow-scheduler` в статусе **Up** (`docker compose ps`). Иначе: `docker compose logs airflow-scheduler`.
+1. `airflow-scheduler` и **`airflow-triggerer`** в статусе **Up** (`docker compose ps`). Triggerer нужен для deferrable DAG (например `ods_open_meteo_defer_fetch`). Иначе: `docker compose logs airflow-scheduler` / `docker compose logs airflow-triggerer`.
 2. Compose запущен из **корня** репозитория (рядом `dags/`):
 
 ```bash
@@ -260,19 +296,25 @@ limit 20;
 
 ## 7. Debezium и несколько источников
 
-1. Сервис `kafka-connect` уже в `docker-compose.yml`.
-2. Конфиги в `debezium/connectors/`.
-3. Регистрация:
+1. Сервис `kafka-connect` уже в `docker-compose.yml`; Postgres поднят с `wal_level=logical` (см. `command` у `postgres`).
+2. Bootstrap создаёт БД **`sourcedb`**, пользователей **`debezium`** и **`sourcedb_loader`**, OLTP-данные и справочники `ref_*` — `sql/bootstrap/070_debezium_sourcedb.sql`. Регулярный полный перегруз справочников — DAG **`sourcedb_reference_full_reload`** (connection `AIRFLOW_CONN_SOURCEDB`).
+3. Конфиги в `debezium/connectors/`:
+   - **`postgres-cdc-oltp.json`** — `public.customers`, `public.orders` → топики с префиксом `cdc.pg_oltp`.
+   - **`postgres-cdc-inventory.json`** — `inventory.products`, `inventory.stock_movements` → `cdc.pg_inventory`.
+4. Регистрация (два независимых CDC-источника на одну БД, разные replication slot):
 
 ```bash
 curl -X POST http://localhost:8083/connectors \
   -H "Content-Type: application/json" \
-  -d @debezium/connectors/postgres-source-template.json
+  -d @debezium/connectors/postgres-cdc-oltp.json
+curl -X POST http://localhost:8083/connectors \
+  -H "Content-Type: application/json" \
+  -d @debezium/connectors/postgres-cdc-inventory.json
 ```
 
-4. Статус: `curl http://localhost:8083/connectors/postgres-source-demo/status`
+5. Статус: `curl http://localhost:8083/connectors/postgres-cdc-oltp/status` (и аналогично для `postgres-cdc-inventory`).
 
-Идея: новый источник → свои Kafka topics → стабильный downstream (raw/stg/vault/datamart).
+Идея: новый источник → свои Kafka topics (`topic.prefix`) → стабильный downstream (raw/stg/vault/datamart). Подробнее — `debezium/connectors/README.md`.
 
 ---
 
@@ -287,6 +329,7 @@ curl -X POST http://localhost:8083/connectors \
 | `marts_publish_refresh` | `marts_publish_refresh.py` | После vault |
 | `weather_regime_dimension_build` | `weather_regime_dimension_build.py` | Meteo STG → analytics SCD2 |
 | `ods_*` | `ods_*_fetch.py` | REST → Kafka → raw ODS |
+| `sourcedb_reference_full_reload` | `sourcedb_reference_full_reload.py` | Полный перегруз справочников в `sourcedb` (ref_*) |
 | `dbt_analytics_build` | `dbt_analytics_build.py` | dbt run/test |
 
 SQL-пайплайны в `sql/tasks/*` (SRC-*, DV-*); one-off в `DE-*` DAG не вызывают автоматически.
@@ -376,8 +419,8 @@ HTML: `docs/sphinx/_build/html/index.html`.
 **Bootstrap:** при каждом `docker compose up` сервис **`bootstrap-apply`** прогоняет `sql/bootstrap/*.sql` (новые файлы подхватываются без ручного `psql`).
 
 ```bash
-docker compose restart airflow-webserver airflow-scheduler
-docker compose logs -f airflow-scheduler
+docker compose restart airflow-webserver airflow-scheduler airflow-triggerer
+docker compose logs -f airflow-scheduler airflow-triggerer
 docker compose --profile dbt run --rm dbt dbt --version
 ```
 
@@ -450,11 +493,11 @@ ssh -i ~/.ssh/github_deploy_moex_etl deploy@<IP_VM>
 <details>
 <summary>Идеи для углубления</summary>
 
-**Инфраструктура:** новый сервис в Compose (Jupyter, ClickHouse); watermark, SCD2, жёсткие тесты данных.
+**Инфраструктура:** новый сервис в Compose (Jupyter, ClickHouse...) и настройка окружения.
 
-**Airflow:** ветвление в DAG, Datasets, TriggerDagRunOperator, кастомный оператор в `airflow/plugins/`.
+**Airflow:** ветвление в DAG, Datasets, DynamicTaskMapping, TriggerDagRunOperator, кастомный оператор в `airflow/plugins/`.
 
-**Данные / SQL:** сложная витрина в `sql/tasks` или dbt; второй внешний API; сравнение с ClickHouse при желании.
+**Данные / SQL:** сложная витрина в `sql/tasks` или dbt; второй внешний API; watermark, SCD2, тесты данных; перенос витрин на ClickHouse с использованием его особенностей (движков например).
 
 **Оптимизация:** партиции, индексы, разбор `EXPLAIN (ANALYZE, BUFFERS)`; идеи шардирования/read-replica.
 
