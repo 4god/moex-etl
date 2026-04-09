@@ -139,6 +139,14 @@ docker network prune -f
 docker compose up -d --build --remove-orphans
 ```
 
+Если ошибка повторяется, подними сеть по шагам (как в CI): сначала Kafka и Postgres, дождись `healthy` в `docker compose ps`, затем остальное:
+
+```bash
+docker compose up -d kafka postgres
+# когда оба healthy:
+COMPOSE_PARALLEL_LIMIT=1 docker compose up -d --build --remove-orphans
+```
+
 На macOS/Windows при повторении сбрось Docker (Restart Docker Desktop / «Clean / Purge data» в крайнем случае).
 
 </details>

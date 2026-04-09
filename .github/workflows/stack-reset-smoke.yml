@@ -34,12 +34,33 @@ jobs:
           docker compose down -v --remove-orphans || true
           docker network prune -f
 
-      # Без profile bi — быстрее CI (без Metabase/dbt), bootstrap-apply и Airflow в дефолтном compose
+      # Двухфазный up: сначала kafka+postgres и ожидание healthy — иначе на GHA часто
+      # «network … not found» при параллельном подключении десятка контейнеров к одной сети.
+      # COMPOSE_PARALLEL_LIMIT=1 — по одному контейнеру на шаг во второй фазе.
       - name: Up (bootstrap-apply + Airflow)
+        env:
+          COMPOSE_PARALLEL_LIMIT: "1"
         run: |
           set -euo pipefail
+          compose_up_staged() {
+            docker compose up -d kafka postgres
+            for i in $(seq 1 50); do
+              k=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' workshop-kafka 2>/dev/null || echo missing)
+              p=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' workshop-postgres 2>/dev/null || echo missing)
+              if [[ "$k" == "healthy" && "$p" == "healthy" ]]; then
+                break
+              fi
+              if [[ "$i" -eq 50 ]]; then
+                echo "Timeout waiting for kafka/postgres healthy (last: kafka=$k postgres=$p)"
+                docker compose ps -a
+                return 1
+              fi
+              sleep 2
+            done
+            docker compose up -d --build --remove-orphans
+          }
           for attempt in 1 2 3; do
-            if docker compose up -d --build --remove-orphans; then
+            if compose_up_staged; then
               exit 0
             fi
             echo "compose up failed (attempt ${attempt}/3), pruning networks and retrying..."
