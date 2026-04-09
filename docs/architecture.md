@@ -50,4 +50,4 @@ flowchart LR
     D3 --> L3["weather_regime_dimension_build"]
 ```
 
-Отдельно по расписанию: DAG `ods_*` подтягивают публичные REST в `raw.open_data_snapshots` (см. `config/open_data_sources.example.yaml`).
+Отдельно по расписанию: DAG `ods_*` публикуют ответы публичных REST в Kafka (`raw.ods.*`) и consumer пишет в `raw.ods_economic_payloads` / `raw.ods_territory_payloads` (см. `config/open_data_sources.example.yaml`).

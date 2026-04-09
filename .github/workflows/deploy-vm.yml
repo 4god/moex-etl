@@ -6,6 +6,7 @@
 #
 # На VM один раз: git clone, ветка workshop/moex-etl, remote origin на этот репозиторий.
 # Рекомендуется отдельный Linux-пользователь + Deploy Key (read-only) или SSH-ключ только для деплоя.
+# После `docker compose up` bootstrap SQL применяет сервис bootstrap-apply — отдельный ручной psql на VM не нужен.
 
 name: Deploy to workshop VM
 

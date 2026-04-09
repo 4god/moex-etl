@@ -1,0 +1,69 @@
+# Полный сброс томов и подъём стека в CI — проверка, что bootstrap и Airflow стартуют без ручных шагов.
+name: Stack reset smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "docker-compose.yml"
+      - "sql/bootstrap/**"
+      - "scripts/**"
+      - "airflow/**"
+  push:
+    branches: [main, master, workshop/moex-etl]
+    paths:
+      - "docker-compose.yml"
+      - "sql/bootstrap/**"
+      - "scripts/**"
+      - "airflow/**"
+
+concurrency:
+  group: stack-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reset-and-up:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Down volumes and build
+        run: docker compose down -v
+
+      # Без profile bi — быстрее CI (без Metabase/dbt), bootstrap-apply и Airflow в дефолтном compose
+      - name: Up (bootstrap-apply + Airflow)
+        run: docker compose up -d --build
+
+      - name: Wait for bootstrap-apply
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 90); do
+            status=$(docker inspect --format='{{.State.Status}}' workshop-bootstrap-apply 2>/dev/null || echo pending)
+            if [[ "$status" == "exited" ]]; then
+              code=$(docker inspect --format='{{.State.ExitCode}}' workshop-bootstrap-apply)
+              echo "bootstrap-apply exit code: $code"
+              docker logs workshop-bootstrap-apply 2>&1 | tail -n 80
+              test "$code" = "0"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs workshop-bootstrap-apply 2>&1 || true
+          exit 1
+
+      - name: Wait for Airflow webserver
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 5 http://localhost:8080/health >/dev/null 2>&1; then
+              echo "Airflow health OK"
+              exit 0
+            fi
+            sleep 3
+          done
+          docker compose logs airflow-webserver --tail 80
+          exit 1
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail 120

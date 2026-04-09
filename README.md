@@ -65,6 +65,9 @@
 │   └── connectors/
 │       ├── README.md
 │       └── postgres-source-template.json
+├── scripts/
+│   ├── apply_bootstrap.sh   # вызывается сервисом bootstrap-apply в compose
+│   └── reset_stack.sh       # полный сброс томов + up (обёртка для make reset-db)
 ├── sql/
 │   ├── bootstrap/
 │   │   ├── README.md
@@ -73,7 +76,8 @@
 │   │   ├── 020_add_kafka_metadata_to_raw.sql
 │   │   ├── 030_add_open_meteo_source.sql
 │   │   ├── 040_open_data_landing.sql
-│   │   └── 050_pg_stat_statements.sql
+│   │   ├── 050_pg_stat_statements.sql
+│   │   └── 060_ods_kafka_raw_tables.sql
 │   └── tasks/
 │       ├── README.md
 │       ├── SRC-110_moex_stg_refresh/
@@ -207,7 +211,7 @@ docker compose ps
 - `vault_batch_load` (после обновления STG из MOEX и CBR)
 - `marts_publish_refresh` (после загрузки vault)
 - `weather_regime_dimension_build` (после обновления meteo STG)
-- `ods_economic_indicator_fetch` / `ods_territory_reference_fetch` (открытые REST → `raw.open_data_snapshots`, конфиг в `config/`)
+- `ods_economic_indicator_fetch` / `ods_territory_reference_fetch` (открытые REST → Kafka → `raw.ods_*_payloads`, конфиг в `config/`)
 
 После публикации datamart DAG **`dbt_analytics_build`** автоматически выполняет **`dbt run`** и **`dbt test`** (те же команды, что вручную через `make dbt-run` / контейнер `dbt`). При необходимости dbt можно по-прежнему запускать отдельно для отладки.
 
@@ -427,7 +431,7 @@ curl http://localhost:8083/connectors/postgres-source-demo/status
 
 Объединение источников происходит только на правилах Data Vault (через общие hub/link) и в витринах/datamart.
 
-## dbt: что добавлено
+## dbt
 
 - **Оркестрация:** DAG `dbt_analytics_build` после Dataset `datamart/published` вызывает **`dbt run`** и **`dbt test`** из образа Airflow (проект смонтирован в `/opt/airflow/dbt`). Все возможности dbt (Jinja, pre/post-hook, `vars`, тесты) остаются доступны — это те же CLI-команды, не эмуляция SQL. Обойти рантайм dbt без потери семантики нельзя; вариант «только скомпилированный SQL» — отдельный сценарий (`dbt compile` + ручной запуск), без автотестов и хуков dbt.
 - **Слои:** `sources.yml` описывает таблицы STG/datamart/analytics с **meta** (dag_id, Dataset). **`staging/`** — тонкие представления поверх `source()`, **`marts/`** — факты на `ref()` от staging (линейка совпадает с DAG: moex/cbr → vault → datamart → dbt; погода → analytics dim).
@@ -479,7 +483,7 @@ LIMIT 20;
 SELECT pg_stat_statements_reset();
 ```
 
-Уже поднятый том Postgres: добавьте `command` у сервиса `postgres`, перезапустите контейнер и выполните `050_pg_stat_statements.sql` вручную (см. `sql/bootstrap/README.md`).
+Если вы **впервые** добавили `shared_preload_libraries` в `command` у уже существующего тома: перезапустите Postgres, затем `docker compose up` — сервис **`bootstrap-apply`** сам догонит `050_pg_stat_statements.sql` (ручной `psql` не обязателен). Подробнее: `sql/bootstrap/README.md`.
 
 ## Sphinx автодокументация
 
@@ -494,6 +498,8 @@ make docs-sphinx
 Готовая документация появится в `docs/sphinx/_build/html/index.html`.
 
 ## Полезные команды
+
+**База и bootstrap:** при каждом `docker compose up` сервис **`bootstrap-apply`** применяет все `sql/bootstrap/*.sql` к работающему Postgres (новые файлы в репозитории подхватываются без ручного `docker compose exec … psql`). Полный сброс данных и томов: `make reset-db` или `./scripts/reset_stack.sh` (опция `--no-bi` — без профиля Metabase). Повторно только SQL: `make apply-bootstrap`.
 
 Перезапуск только Airflow:
 
@@ -510,7 +516,9 @@ docker compose logs -f airflow-scheduler
 Поднять все вместе (включая BI):
 
 ```bash
-docker compose --profile bi up -d
+make up
+# эквивалентно:
+docker compose --profile bi up -d --build
 ```
 
 Поднять dbt-контейнер на время выполнения команд:
@@ -531,10 +539,10 @@ make docs-lineage
 docker compose down
 ```
 
-Сбросить все данные и начать заново:
+Сбросить все данные и начать заново (тома Postgres/Kafka, затем пересборка и старт):
 
 ```bash
-docker compose down -v
+make reset-db
 ```
 
 ## Публикация в GitHub
@@ -554,7 +562,9 @@ git push -u origin workshop/moex-etl
 
 ## CI: автодеплой на виртуальную машину
 
-В репозитории есть workflow [`.github/workflows/deploy-vm.yml`](.github/workflows/deploy-vm.yml): при **push** в ветку `workshop/moex-etl` (в том числе после **merge PR**) GitHub Actions по SSH заходит на VPS, делает `git pull` и `docker compose up`.
+В репозитории есть workflow [`.github/workflows/deploy-vm.yml`](.github/workflows/deploy-vm.yml): при **push** в ветку `workshop/moex-etl` (в том числе после **merge PR**) GitHub Actions по SSH заходит на VPS, делает `git pull` и `docker compose up` (на старте выполняется **`bootstrap-apply`** — дополнительные команды на сервере не нужны).
+
+Проверка полного сброса и подъёма стека в чистом окружении: [`.github/workflows/stack-reset-smoke.yml`](.github/workflows/stack-reset-smoke.yml) (можно запустить вручную через **Actions → Stack reset smoke**).
 
 ### Шаг 1. Отдельная SSH-пара только для деплоя (на вашем компьютере)
 

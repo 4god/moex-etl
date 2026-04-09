@@ -1,4 +1,21 @@
-.PHONY: docs-sphinx docs-lineage dbt-run dbt-test
+.PHONY: docs-sphinx docs-lineage dbt-run dbt-test up down reset-db apply-bootstrap
+
+# Профиль BI (Metabase): по умолчанию как в README. Для минимального стека: make up STACK_PROFILES=
+STACK_PROFILES ?= --profile bi
+
+up:
+	docker compose $(STACK_PROFILES) up -d --build
+
+down:
+	docker compose down
+
+# Сброс томов Postgres/Kafka и перезапуск (чистая БД + повторный bootstrap)
+reset-db:
+	./scripts/reset_stack.sh
+
+# Повторно прогнать sql/bootstrap к уже запущенному Postgres (обычно не нужно: то же делает сервис bootstrap-apply при каждом up)
+apply-bootstrap:
+	docker compose run --rm bootstrap-apply
 
 docs-sphinx:
 	python3 -m venv .venv-docs

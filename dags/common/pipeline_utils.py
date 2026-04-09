@@ -16,6 +16,9 @@ KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 TOPIC_MOEX_RAW = "raw.moex.payloads"
 TOPIC_CBR_RAW = "raw.cbr.payloads"
 TOPIC_OPEN_METEO_RAW = "raw.open_meteo.payloads"
+# Открытые REST (ODS DAG-и): тот же контракт сообщения, что у MOEX/CBR (source, endpoint, payload).
+TOPIC_ODS_ECONOMIC_RAW = "raw.ods.economic.payloads"
+TOPIC_ODS_TERRITORY_RAW = "raw.ods.territory.payloads"
 
 # Dataset contracts between pipelines (Airflow Assets).
 DS_STG_MOEX_READY = Dataset("dataset://stg/moex")
@@ -135,15 +138,3 @@ def run_pipeline_sql(pipeline_folder: str) -> None:
             continue
 
         hook.run(sql_text)
-
-
-def persist_open_data_snapshot(source_key: str, endpoint: str, payload_obj: object) -> None:
-    """Append one JSON payload from an open HTTP/API source into raw.open_data_snapshots."""
-    hook = PostgresHook(postgres_conn_id="dwh")
-    hook.run(
-        """
-        INSERT INTO raw.open_data_snapshots (source_key, endpoint, payload)
-        VALUES (%s, %s, %s::jsonb)
-        """,
-        parameters=(source_key, endpoint, json.dumps(payload_obj)),
-    )

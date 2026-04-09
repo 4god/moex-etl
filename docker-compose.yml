@@ -103,6 +103,23 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./sql/bootstrap:/docker-entrypoint-initdb.d
 
+  # Повторно применяет все sql/bootstrap/*.sql к живому Postgres (идемпотентно).
+  # Так новые скрипты подхватываются без ручного psql; initdb.d по-прежнему отрабатывает при первом создании тома.
+  bootstrap-apply:
+    image: postgres:16
+    container_name: workshop-bootstrap-apply
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./scripts/apply_bootstrap.sh:/scripts/apply_bootstrap.sh:ro
+      - ./sql/bootstrap:/bootstrap:ro
+    entrypoint: ["/bin/bash", "/scripts/apply_bootstrap.sh"]
+
   airflow-init:
     <<: *airflow-common
     container_name: workshop-airflow-init
@@ -110,6 +127,13 @@ services:
     entrypoint: /bin/bash
     # migrate всегда; create падает если admin уже есть — тогда webserver не стартует без "|| true"
     command: -c "airflow db migrate && (airflow users create --username admin --firstname Data --lastname Engineer --role Admin --email admin@example.com --password admin || true)"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      bootstrap-apply:
+        condition: service_completed_successfully
 
   airflow-webserver:
     <<: *airflow-common
@@ -145,6 +169,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      bootstrap-apply:
+        condition: service_completed_successfully
 
   dbt:
     build:
@@ -158,6 +184,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      bootstrap-apply:
+        condition: service_completed_successfully
 
   dbt-docs:
     build:
@@ -175,6 +203,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      bootstrap-apply:
+        condition: service_completed_successfully
 
 volumes:
   postgres-data:
