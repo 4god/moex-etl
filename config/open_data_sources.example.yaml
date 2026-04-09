@@ -1,5 +1,10 @@
 # Скопируйте в open_data_sources.yaml при необходимости переопределений.
 # Локальный open_data_sources.yaml в .gitignore.
+#
+# Backfill ODS (переменные Airflow / env): см. README.
+# - `ods_disable_backfill: true` — не подставлять date / lastTimePeriod по окну.
+# - `ods_ingest_mode: gap_fill` | `snapshot_replace` — явный режим; иначе: есть date или
+#   lastTimePeriod в query_params → gap_fill; иначе snapshot_replace (DELETE по source в raw, затем GET).
 
 # Опциональные секреты для API (профили называются вручную в sources).
 credentials: {}
@@ -20,6 +25,7 @@ sources:
   # Справочник по странам — REST Countries (публичный REST).
   territory_catalog:
     kind: rest_json
+    ods_ingest_mode: snapshot_replace
     url: "https://restcountries.com/v3.1/independent"
     query_params:
       status: "true"
@@ -28,6 +34,7 @@ sources:
   # ООН — справочник локаций (UN Population Data Portal API, JSON).
   un_population_locations:
     kind: rest_json
+    ods_ingest_mode: snapshot_replace
     url: "https://population.un.org/dataportalapi/api/v1/locations"
     query_params:
       pageSize: 100
@@ -39,10 +46,107 @@ sources:
     query_params:
       format: JSON
       lang: en
+      lastTimePeriod: 60
 
   # NASA — Astronomy Picture of the Day (публичный REST; при лимитах замените DEMO_KEY).
   nasa_apod:
     kind: rest_json
+    ods_ingest_mode: snapshot_replace
     url: "https://api.nasa.gov/planetary/apod"
     query_params:
       api_key: "DEMO_KEY"
+
+  # --- World Bank: здоровье и среда (DAG ods_health_worldbank_fetch → raw.ods_health_payloads) ---
+  # Индикаторы проверены по API v2; описания: https://data.worldbank.org/ (поиск по коду).
+  # country=all — все страны и агрегаты; в Metabase джойнят по countryiso3code + date внутри payload[1].
+  # Сюжет дашборда: исход здоровья (LE), среда (PM2.5), урбанизация (контекст питания в городе), избыток веса у детей.
+
+  health_life_expectancy_wb:
+    kind: rest_json
+    base_url: "https://api.worldbank.org/v2/country/{country}/indicator/{indicator}"
+    query_params:
+      format: json
+      date: "2015:2022"
+      per_page: 20000
+    path_params:
+      country: all
+      indicator: SP.DYN.LE00.IN
+
+  health_air_pm25_wb:
+    kind: rest_json
+    base_url: "https://api.worldbank.org/v2/country/{country}/indicator/{indicator}"
+    query_params:
+      format: json
+      date: "2015:2022"
+      per_page: 20000
+    path_params:
+      country: all
+      indicator: EN.ATM.PM25.MC.M3
+
+  health_overweight_u5_wb:
+    kind: rest_json
+    base_url: "https://api.worldbank.org/v2/country/{country}/indicator/{indicator}"
+    query_params:
+      format: json
+      date: "2015:2022"
+      per_page: 20000
+    path_params:
+      country: all
+      indicator: SH.STA.OWGH.ZS
+
+  health_urbanization_wb:
+    kind: rest_json
+    base_url: "https://api.worldbank.org/v2/country/{country}/indicator/{indicator}"
+    query_params:
+      format: json
+      date: "2015:2022"
+      per_page: 20000
+    path_params:
+      country: all
+      indicator: SP.URB.TOTL.IN.ZS
+
+  # --- Маркетинг / потребитель (DAG ods_marketing_insight_fetch → raw.ods_marketing_payloads) ---
+  # Eurostat ei_bsco_m — опросы потребителей (балансы по вопросам + индекс BS-CSMCI); geo=EA20 — еврозона.
+  # World Bank — макро-контекст: цифровой охват, доля потребления домохозяйств в ВВП, ВВП на душу.
+
+  market_eurostat_consumer_confidence_ea20:
+    kind: rest_json
+    url: "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/ei_bsco_m"
+    query_params:
+      format: JSON
+      lang: en
+      geo: EA20
+      lastTimePeriod: 24
+
+  market_wb_internet_users:
+    kind: rest_json
+    base_url: "https://api.worldbank.org/v2/country/{country}/indicator/{indicator}"
+    query_params:
+      format: json
+      date: "2015:2022"
+      per_page: 20000
+    path_params:
+      country: all
+      indicator: IT.NET.USER.ZS
+
+  market_wb_hh_consumption_pctgdp:
+    kind: rest_json
+    base_url: "https://api.worldbank.org/v2/country/{country}/indicator/{indicator}"
+    query_params:
+      format: json
+      date: "2015:2022"
+      per_page: 20000
+    path_params:
+      country: all
+      indicator: NE.CON.PRVT.ZS
+
+  market_wb_gdp_per_capita:
+    kind: rest_json
+    base_url: "https://api.worldbank.org/v2/country/{country}/indicator/{indicator}"
+    query_params:
+      format: json
+      date: "2015:2022"
+      per_page: 20000
+    path_params:
+      country: all
+      indicator: NY.GDP.PCAP.CD

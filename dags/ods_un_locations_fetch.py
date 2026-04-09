@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import requests
 from airflow.decorators import dag, task
+from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.utils.task_group import TaskGroup
 
 from common.dag_defaults import TAGS_ODS_OPEN_DATA, WORKSHOP_START_DATE
+from common.ods_gap_fill import purge_raw_rows_for_source
 from common.open_data_settings import (
     get_source_config,
     open_data_query_params,
@@ -41,6 +43,12 @@ def ods_un_locations_fetch() -> None:
         group_id="un_population_ods",
         tooltip="План страниц → N параллельных GET → один consumer в Postgres",
     ):
+        @task(task_id="purge_un_locations_snapshot")
+        def purge_un_locations_snapshot() -> None:
+            """Полная перезапись снимка: удалить прошлые страницы этого source в raw."""
+            hook = PostgresHook(postgres_conn_id="dwh")
+            purge_raw_rows_for_source(hook, "ods_territory_payloads", SOURCE_LABEL)
+
         @task(task_id="plan_page_numbers")
         def plan_page_numbers() -> list[int]:
             spec = get_source_config(SOURCE_KEY)
@@ -85,9 +93,10 @@ def ods_un_locations_fetch() -> None:
                 group_id="workshop-raw-ods-territory-loader",
             )
 
+        purge = purge_un_locations_snapshot()
         pages = plan_page_numbers()
         mapped = fetch_page_to_kafka.expand(page=pages)
-        mapped >> ingest_kafka_to_raw()
+        purge >> pages >> mapped >> ingest_kafka_to_raw()
 
 
 dag = ods_un_locations_fetch()

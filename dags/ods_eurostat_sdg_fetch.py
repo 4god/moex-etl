@@ -27,6 +27,7 @@ def ods_eurostat_sdg_fetch() -> None:
         source_key=SOURCE_KEY,
         source_label=SOURCE_LABEL,
         topic=TOPIC_ODS_ECONOMIC_RAW,
+        raw_table="ods_economic_payloads",
         timeout=180,
     )
     ingest = WorkshopKafkaConsumeToRawOperator(

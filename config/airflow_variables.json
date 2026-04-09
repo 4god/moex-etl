@@ -1,6 +1,9 @@
 {
   "kafka_bootstrap_servers": "kafka:9092",
   "open_data_config_dir": "/opt/airflow/config",
+  "workshop_ods_backfill": "true",
+  "workshop_ods_backfill_from": "2025-01-01",
+  "workshop_ods_from_date": "",
   "workshop_env": "local",
   "kafka_connect_url": "http://kafka-connect:8083",
   "kafka_ui_url_internal": "http://kafka-ui:8080",

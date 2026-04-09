@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import TYPE_CHECKING
 
@@ -9,6 +10,8 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 if TYPE_CHECKING:
     from kafka import KafkaConsumer, KafkaProducer
+
+_LOG = logging.getLogger(__name__)
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 
@@ -20,6 +23,10 @@ TOPIC_OPEN_METEO_RAW = "raw.open_meteo.payloads"
 TOPIC_ODS_ECONOMIC_RAW = "raw.ods.economic.payloads"
 TOPIC_ODS_TERRITORY_RAW = "raw.ods.territory.payloads"
 TOPIC_ODS_PUBLIC_RAW = "raw.ods.public.payloads"
+# World Bank: здоровье и среда (ожирение, загрязнение воздуха, диабет, урбанизация) — см. ods_health_worldbank_fetch.
+TOPIC_ODS_HEALTH_RAW = "raw.ods.health.payloads"
+# Eurostat (опросы/уверенность) + World Bank (цифровой охват, потребление) — ods_marketing_insight_fetch.
+TOPIC_ODS_MARKET_RAW = "raw.ods.marketing.payloads"
 
 # Dataset contracts between pipelines (Airflow Assets).
 DS_STG_MOEX_READY = Dataset("dataset://stg/moex")
@@ -48,6 +55,13 @@ def publish_to_kafka(topic: str, message: dict) -> None:
     """Publish one JSON message into Kafka."""
     from kafka import KafkaProducer
 
+    endpoint = (message.get("endpoint") or "")[:800]
+    _LOG.info(
+        "kafka_publish topic=%s source=%s endpoint=%s",
+        topic,
+        message.get("source"),
+        endpoint,
+    )
     producer = KafkaProducer(
         bootstrap_servers=KAFKA_BOOTSTRAP,
         value_serializer=lambda value: json.dumps(value).encode("utf-8"),
@@ -60,7 +74,11 @@ def publish_to_kafka(topic: str, message: dict) -> None:
 
 
 def consume_raw_to_postgres(topic: str, table: str, group_id: str) -> int:
-    """Consume source topic and persist events into raw schema."""
+    """Consume source topic and persist events into raw schema.
+
+    Повторная вставка с тем же (source, endpoint) подавляется уникальным индексом
+    на (source, endpoint_hash); см. sql/bootstrap/063_raw_payloads_endpoint_dedupe.sql.
+    """
     from kafka import KafkaConsumer
 
     _ensure_raw_kafka_metadata_columns(table)
@@ -76,27 +94,68 @@ def consume_raw_to_postgres(topic: str, table: str, group_id: str) -> int:
     )
     hook = PostgresHook(postgres_conn_id="dwh")
     inserted = 0
+    skipped_dup = 0
     try:
-        for msg in consumer:
-            payload = msg.value
-            hook.run(
-                f"""
-                INSERT INTO raw.{table}
-                    (source, endpoint, payload, kafka_topic, kafka_partition, kafka_offset)
-                VALUES (%s, %s, %s::jsonb, %s, %s, %s)
-                """,
-                parameters=(
-                    payload.get("source"),
-                    payload.get("endpoint"),
+        conn = hook.get_conn()
+        try:
+            for msg in consumer:
+                payload = msg.value
+                source = payload.get("source")
+                endpoint = payload.get("endpoint")
+                params = (
+                    source,
+                    endpoint,
                     json.dumps(payload.get("payload")),
                     msg.topic,
                     msg.partition,
                     msg.offset,
-                ),
-            )
-            inserted += 1
+                )
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"""
+                        INSERT INTO raw.{table}
+                            (source, endpoint, payload, kafka_topic, kafka_partition, kafka_offset)
+                        VALUES (%s, %s, %s::jsonb, %s, %s, %s)
+                        ON CONFLICT (source, endpoint_hash) DO NOTHING
+                        """,
+                        params,
+                    )
+                    rc = cur.rowcount
+                conn.commit()
+                if rc:
+                    inserted += 1
+                    _LOG.info(
+                        "raw_insert table=%s topic=%s source=%s partition=%s offset=%s endpoint=%s",
+                        table,
+                        topic,
+                        source,
+                        msg.partition,
+                        msg.offset,
+                        (endpoint or "")[:800],
+                    )
+                else:
+                    skipped_dup += 1
+                    _LOG.info(
+                        "raw_skip_duplicate table=%s topic=%s source=%s partition=%s offset=%s endpoint=%s",
+                        table,
+                        topic,
+                        source,
+                        msg.partition,
+                        msg.offset,
+                        (endpoint or "")[:800],
+                    )
+        finally:
+            conn.close()
     finally:
         consumer.close()
+    if skipped_dup:
+        _LOG.info(
+            "consume_raw_to_postgres summary table=%s topic=%s inserted=%s skipped_duplicate=%s",
+            table,
+            topic,
+            inserted,
+            skipped_dup,
+        )
     return inserted
 
 

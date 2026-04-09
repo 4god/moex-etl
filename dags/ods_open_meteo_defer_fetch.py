@@ -13,8 +13,10 @@ from typing import Any
 from airflow.decorators import dag, task
 from airflow.operators.python import get_current_context
 from airflow.providers.http.operators.http import HttpOperator
+from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.utils.task_group import TaskGroup
 
+from common.ods_gap_fill import purge_raw_rows_for_source
 from common.pipeline_utils import (
     TOPIC_ODS_PUBLIC_RAW,
     consume_raw_to_postgres,
@@ -63,6 +65,11 @@ def ods_open_meteo_defer_fetch() -> None:
             response_filter=_open_meteo_response_capture,
         )
 
+        @task(task_id="purge_open_meteo_public_snapshot")
+        def purge_open_meteo_public_snapshot() -> None:
+            hook = PostgresHook(postgres_conn_id="dwh")
+            purge_raw_rows_for_source(hook, "ods_public_api_payloads", SOURCE_LABEL)
+
         @task(task_id="publish_to_kafka")
         def publish_to_kafka_task() -> None:
             ti = get_current_context()["ti"]
@@ -86,7 +93,12 @@ def ods_open_meteo_defer_fetch() -> None:
                 group_id="workshop-raw-ods-public-loader",
             )
 
-        fetch_open_meteo_defer >> publish_to_kafka_task() >> ingest_kafka_to_raw()
+        (
+            fetch_open_meteo_defer
+            >> purge_open_meteo_public_snapshot()
+            >> publish_to_kafka_task()
+            >> ingest_kafka_to_raw()
+        )
 
 
 dag = ods_open_meteo_defer_fetch()

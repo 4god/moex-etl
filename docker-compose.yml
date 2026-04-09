@@ -26,6 +26,8 @@ x-airflow-common:
     AIRFLOW_VAR_KAFKA_UI_URL_INTERNAL: http://kafka-ui:8080
     AIRFLOW_VAR_KAFKA_UI_URL_HOST: http://localhost:8090
     AIRFLOW_VAR_DBT_PROJECT_DIR: /opt/airflow/dbt
+    # ODS (опционально): по умолчанию backfill включён; выключить — AIRFLOW_VAR_WORKSHOP_ODS_BACKFILL=false.
+    # AIRFLOW_VAR_WORKSHOP_ODS_BACKFILL_FROM: "2025-01-01"
     # Kafka bootstrap для кода через os.getenv (см. pipeline_utils); значение совпадает с Variable kafka_bootstrap_servers.
     KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     # Плагины импортируют common.* из dags (дублирует образ; можно переопределить).

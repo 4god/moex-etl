@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 import requests
@@ -12,6 +13,8 @@ from common.pipeline_utils import (
     publish_to_kafka,
     run_pipeline_sql,
 )
+
+_LOG = logging.getLogger(__name__)
 
 MOEX_URL = (
     "https://iss.moex.com/iss/engines/stock/markets/shares/securities.json"
@@ -32,8 +35,10 @@ def src_moex_ingestion() -> None:
 
     @task
     def extract_moex_raw() -> None:
+        _LOG.info("MOEX GET %s", MOEX_URL)
         response = requests.get(MOEX_URL, timeout=30)
         response.raise_for_status()
+        _LOG.info("MOEX response status=%s final_url=%s", response.status_code, response.url)
         publish_to_kafka(
             TOPIC_MOEX_RAW,
             {

@@ -27,6 +27,7 @@ def ods_territory_reference_fetch() -> None:
         source_key=SOURCE_KEY,
         source_label=SOURCE_LABEL,
         topic=TOPIC_ODS_TERRITORY_RAW,
+        raw_table="ods_territory_payloads",
         timeout=120,
     )
     ingest = WorkshopKafkaConsumeToRawOperator(

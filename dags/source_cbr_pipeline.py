@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 import requests
@@ -12,6 +13,8 @@ from common.pipeline_utils import (
     publish_to_kafka,
     run_pipeline_sql,
 )
+
+_LOG = logging.getLogger(__name__)
 
 CBR_URL = "https://www.cbr-xml-daily.ru/daily_json.js"
 
@@ -29,8 +32,10 @@ def src_cbr_ingestion() -> None:
 
     @task
     def extract_cbr_raw() -> None:
+        _LOG.info("CBR GET %s", CBR_URL)
         response = requests.get(CBR_URL, timeout=30)
         response.raise_for_status()
+        _LOG.info("CBR response status=%s final_url=%s", response.status_code, response.url)
         publish_to_kafka(
             TOPIC_CBR_RAW,
             {

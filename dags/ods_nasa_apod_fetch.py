@@ -27,6 +27,7 @@ def ods_nasa_apod_fetch() -> None:
         source_key=SOURCE_KEY,
         source_label=SOURCE_LABEL,
         topic=TOPIC_ODS_PUBLIC_RAW,
+        raw_table="ods_public_api_payloads",
         timeout=60,
     )
     ingest = WorkshopKafkaConsumeToRawOperator(

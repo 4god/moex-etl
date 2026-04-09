@@ -239,6 +239,9 @@ done
 | `kafka_ui_url_internal` | `AIRFLOW_VAR_KAFKA_UI_URL_INTERNAL` |
 | `kafka_ui_url_host` | `AIRFLOW_VAR_KAFKA_UI_URL_HOST` |
 | `dbt_project_dir` | `AIRFLOW_VAR_DBT_PROJECT_DIR` |
+| `workshop_ods_backfill` | `AIRFLOW_VAR_WORKSHOP_ODS_BACKFILL` — по умолчанию **`true`**: backfill ODS с учётом пробелов в raw (см. блок ODS ниже); `false` — только статический YAML |
+| `workshop_ods_backfill_from` | `AIRFLOW_VAR_WORKSHOP_ODS_BACKFILL_FROM` — нижняя граница окна (ISO); по умолчанию **2025-01-01** |
+| `workshop_ods_from_date` | `AIRFLOW_VAR_WORKSHOP_ODS_FROM_DATE` — устаревший алиас нижней границы (если задан, имеет приоритет как дата начала) |
 
 Файл `config/airflow_variables.json` дублирует значения для ручного импорта в БД метаданных (например, если Airflow запущен без этих env):
 
@@ -254,7 +257,7 @@ docker compose exec airflow-webserver airflow variables import /opt/airflow/conf
 
 **Источники (запустить вручную в UI):** `src_moex_ingestion`, `src_cbr_ingestion`, `src_meteo_ingestion`.
 
-**Дальше по Datasets:** `vault_batch_load` → `marts_publish_refresh`; `weather_regime_dimension_build` (meteo); опционально `ods_*_fetch` (в т.ч. World Bank, REST Countries, Eurostat, ООН, NASA APOD, Open-Meteo deferrable — см. `dags/ods_*.py`); после datamart — **`dbt_analytics_build`** (`dbt run` / `dbt test`).
+**Дальше по Datasets:** `vault_batch_load` → `marts_publish_refresh`; `weather_regime_dimension_build` (meteo); опционально `ods_*_fetch` (в т.ч. World Bank, REST Countries, Eurostat, ООН, NASA APOD, **`ods_health_worldbank_fetch`** — здоровье/среда для Metabase, **`ods_marketing_insight_fetch`** — опросы Eurostat + макро WB для второго дашборда, Open-Meteo deferrable — см. `dags/ods_*.py`); после datamart — **`dbt_analytics_build`** (`dbt run` / `dbt test`).
 
 После `git pull` или смены `airflow/requirements.txt` пересоберите Airflow:
 
@@ -299,6 +302,7 @@ docker compose exec postgres psql -U etl -d workshop -c "SELECT COUNT(*) FROM st
 docker compose exec postgres psql -U etl -d workshop -c "SELECT COUNT(*) FROM stg.moscow_weather_daily;"
 docker compose exec postgres psql -U etl -d workshop -c "SELECT COUNT(*) FROM vault.hub_security;"
 docker compose exec postgres psql -U etl -d workshop -c "SELECT COUNT(*) FROM datamart.dm_security_snapshot;"
+docker compose exec postgres psql -U etl -d workshop -c "SELECT COUNT(*) FROM raw.ods_marketing_payloads;"
 docker compose exec postgres psql -U etl -d workshop -c "SELECT city_code, version_num, weather_regime, valid_from, valid_to, is_current FROM analytics.dim_moscow_weather_regime_scd2 ORDER BY version_num;"
 ```
 
@@ -361,6 +365,96 @@ limit 20;
 
 </details>
 
+<details>
+<summary>Дашборд: здоровье и среда (ODS, <code>raw.ods_health_payloads</code>)</summary>
+
+DAG **`ods_health_worldbank_fetch`** грузит четыре набора World Bank API в одну таблицу (различаются по колонке **`source`**). В JSON ответа второй элемент — массив наблюдений: **`payload -> 1`** в PostgreSQL.
+
+Идея для графиков: по странам и годам сопоставить **ожидаемую продолжительность жизни** (`SP.DYN.LE00.IN`), **среднегодовое PM2.5** (`EN.ATM.PM25.MC.M3`), **долю городского населения** (`SP.URB.TOTL.IN.ZS`) и **распространённость избыточного веса у детей до 5 лет** (`SH.STA.OWGH.ZS`) — обсуждаемо в связи с урбанизацией и качеством среды (точные причинно-следственные выводы из корреляций не следуют). Индикатор взрослого ожирения в одном поле WDI в API часто недоступен; при необходимости добавьте WHO/OECD отдельным источником.
+
+Пример разворачивания одной серии (Native query, подставьте нужный `source`):
+
+```sql
+SELECT
+  obs->>'countryiso3code' AS iso3,
+  (obs->>'date')::int AS yr,
+  (obs->>'value')::double precision AS val,
+  loaded_at
+FROM raw.ods_health_payloads,
+  LATERAL jsonb_array_elements(payload->1) AS obs
+WHERE source = 'ODS_HEALTH_WB_LIFE_EXPECTANCY'
+  AND obs->>'value' IS NOT NULL
+LIMIT 500;
+```
+
+Для scatter: два таких запроса (или CTE) с **JOIN** по `iso3` и `yr`, затем визуализация X/Y.
+
+</details>
+
+<details>
+<summary>Дашборд: маркетинг и потребитель (ODS, <code>raw.ods_marketing_payloads</code>)</summary>
+
+DAG **`ods_marketing_insight_fetch`** пишет в одну таблицу четыре источника (колонка **`source`**):
+
+1. **Eurostat `ei_bsco_m`** (`ODS_MARKET_EUROSTAT_CONSUMER_CONF`) — ежемесячные балансы опросов потребителей по еврозоне (EA20), в т.ч. индикатор **BS-CSMCI** (Consumer confidence). Ответ в формате SDMX-JSON: срезы задаются через `dimension` и плоский объект **`value`** с числовыми индексами; для графика по времени удобнее выбрать нужную серию в Metabase через JSON (или нормализовать в dbt отдельной моделью).
+2. **World Bank** — **`IT.NET.USER.ZS`** (доля пользователей интернета), **`NE.CON.PRVT.ZS`** (расходы домохозяйств, % ВВП), **`NY.GDP.PCAP.CD`** (ВВП на душу, текущие US$). Как у health: массив наблюдений в **`payload -> 1`**.
+
+Идея дашборда: на одном экране — **динамика потребительской уверенности** (Eurostat) и **кросс-страновые ряды** по цифровизации и платёжеспособности (WB); scatter или двойная ось — по согласованным годам и коду страны (`countryiso3code`).
+
+Пример разворачивания серии World Bank (подставьте нужный `source` из DAG):
+
+```sql
+SELECT
+  obs->>'countryiso3code' AS iso3,
+  (obs->>'date')::int AS yr,
+  (obs->>'value')::double precision AS val,
+  loaded_at
+FROM raw.ods_marketing_payloads,
+  LATERAL jsonb_array_elements(payload->1) AS obs
+WHERE source = 'ODS_MARKET_WB_INTERNET_USERS_PCT'
+  AND obs->>'value' IS NOT NULL
+LIMIT 500;
+```
+
+Для Eurostat без нормализации: сырой **`payload`** можно исследовать в Metabase (Native query) или выгрузить ключи `value` и метки времени из `payload->'dimension'`.
+
+</details>
+
+<details>
+<summary>ODS: backfill, <code>catchup</code> и «перезапись»</summary>
+
+- У DAG’ов ODS в репозитории обычно **`catchup=False`**: при включении расписания Airflow **не** догоняет прошлые интервалы автоматически — только следующие тики.
+- **Backfill по умолчанию включён** (`workshop_ods_backfill` по умолчанию `true`; выключение: Variable/env **`false`**). Окно: от **`workshop_ods_backfill_from`** (по умолчанию **2025-01-01**, env `WORKSHOP_ODS_BACKFILL_FROM` / алиас `workshop_ods_from_date`) до **сегодня (UTC)**.
+- **Пробелы только там, где данных ещё нет в raw (даты с источника):**
+  - **World Bank** (в YAML есть **`date`** и в операторе передан **`raw_table`**): в Postgres собираются **годы** из поля **`date`** наблюдений в **`payload[1]`** для данного `source`. Запрос к API делается только если не хватает каких‑то лет в окне; в Kafka уходит ответ, **отфильтрованный** до строк только по **недостающим** годам (дата как у источника). Если все годы уже есть — задача **пропускается** (`skipped`).
+  - **Eurostat** (есть **`lastTimePeriod`** и **`raw_table`**): по всем строкам raw для `source` собираются ключи периодов из **`payload.dimension.time.category.label`**. Если множество месяцев **YYYY-MM** от нижней границы до сегодня **уже покрыто**, задача **skipped**; иначе задаётся **`lastTimePeriod`** (не больше 600). Ответ API не режется по месяцам (возможны лишние периоды в одном снимке; дедуп — downstream).
+- Источники **без** `date` / `lastTimePeriod` в query → **`snapshot_replace`**: перед GET — **`DELETE`** в raw по этому `source` (полный снимок). Явно: **`ods_ingest_mode`** в YAML. **`ods_disable_backfill: true`** отключает только подстановку окна по датам для **gap_fill**, не отменяет snapshot purge.
+- Если **`workshop_ods_backfill=false`**, параметры запроса берутся **только из YAML** без логики пробелов.
+- **Дубликаты в raw (Postgres):** для таблиц `raw.*_payloads` из Kafka задан уникальный ключ **`(source, endpoint_hash)`** (`endpoint_hash` — SHA-256 от `endpoint`, см. `sql/bootstrap/063_raw_payloads_endpoint_dedupe.sql`). Вставка **`ON CONFLICT DO NOTHING`**: повтор того же запроса (тот же финальный URL) не добавляет вторую строку; в логах задачи — `raw_skip_duplicate` / `raw_insert`.
+- **Логирование:** оператор ODS пишет в лог Airflow строки **`ODS HTTP GET`** / **`ODS HTTP response`** (URL, параметры с маскированием `api_key` и т.п., статус, `final_url`); **`kafka_publish`** и **`raw_insert`** / **`raw_skip_duplicate`** — в `consume_raw_to_postgres` / `publish_to_kafka`.
+- **`ods_ingest_mode`:** **`gap_fill`** — догрузка по датам источника (см. выше); **`snapshot_replace`** — перед GET выполняется **`DELETE FROM raw.<table> WHERE source = …`** (полная перезапись снимка для этого `source`). Автовыбор: если в `query_params` есть **`date`** или **`lastTimePeriod`** → gap_fill, иначе → snapshot_replace.
+
+</details>
+
+<details>
+<summary>Идемпотентность по DAG и схемам Postgres (сводка)</summary>
+
+| Слой / DAG | Как избегаем дублей и повторной загрузки |
+|------------|------------------------------------------|
+| **raw** (все Kafka → Postgres из `consume_raw_to_postgres`) | Уникальность **`(source, endpoint_hash)`**, вставка **`ON CONFLICT DO NOTHING`** (`063_raw_payloads_endpoint_dedupe.sql`). |
+| **src_moex_ingestion**, **src_cbr_ingestion**, **src_meteo_ingestion** | Те же raw-правила; в логах extract — **`MOEX GET` / `CBR GET` / `Open-Meteo GET`** и ответ. **STG:** MOEX/CBR — `TRUNCATE` + `INSERT … ON CONFLICT DO UPDATE`; Meteo — `TRUNCATE` + вставка из **последнего** raw-снимка (`SRC-*`). Meteo при включённом backfill — параметр **`past_days`** (до 92) для окна от `workshop_ods_backfill_from`. |
+| **ODS** (`WorkshopJsonToKafkaOperator`) | См. блок ODS выше: **gap_fill** vs **snapshot_replace**; логи **`ODS HTTP GET`** с полем **`mode`**. |
+| **ods_un_locations_fetch** | Перед страницами — задача **`purge_un_locations_snapshot`** (DELETE по `source` в `raw.ods_territory_payloads`). |
+| **ods_open_meteo_defer_fetch** | **`purge_open_meteo_public_snapshot`** перед публикацией в Kafka. |
+| **vault_batch_load** (`DV-210`) | **`TRUNCATE … CASCADE`** по hub/link/sat перед перезагрузкой из STG — полная пересборка слоя vault из актуального STG. |
+| **marts_publish_refresh**, **weather_regime_dimension_build** | Идемпотентность через SQL задач (см. `sql/tasks/DV-310_*`, `DV-320_*`). |
+| **sourcedb_reference_full_reload** | **`TRUNCATE` + INSERT** справочников `ref_*` в `sourcedb`. |
+| **dbt_analytics_build** | Материализация в **`analytics`** по моделям dbt (`table`/`view`); повторный `dbt run` пересчитывает витрины из **datamart**/stg. |
+
+Источники **без** временной оси в API (справочники, снимок NASA и т.д.) задаются как **`snapshot_replace`** (в YAML или автоматически) — перед загрузкой raw для этого `source` очищается.
+
+</details>
+
 ---
 
 ## 7. Debezium и несколько источников
@@ -398,6 +492,8 @@ curl -X POST http://localhost:8083/connectors \
 | `marts_publish_refresh` | `marts_publish_refresh.py` | После vault |
 | `weather_regime_dimension_build` | `weather_regime_dimension_build.py` | Meteo STG → analytics SCD2 |
 | `ods_*` | `ods_*_fetch.py` | REST → Kafka → raw ODS |
+| `ods_health_worldbank_fetch` | `ods_health_worldbank_fetch.py` | World Bank: ожидаемая продолжительность жизни, PM2.5, избыток веса (дети до 5 лет), урбанизация → `raw.ods_health_payloads` |
+| `ods_marketing_insight_fetch` | `ods_marketing_insight_fetch.py` | Eurostat (опросы потребителей EA20) + World Bank (интернет, потребление % ВВП, ВВП/душу) → `raw.ods_marketing_payloads` |
 | `sourcedb_reference_full_reload` | `sourcedb_reference_full_reload.py` | Полный перегруз справочников в `sourcedb` (ref_*) |
 | `dbt_analytics_build` | `dbt_analytics_build.py` | dbt run/test |
 

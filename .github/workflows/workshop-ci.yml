@@ -1,4 +1,5 @@
 # Два типа задач в одном workflow (иначе между двумя workflow нельзя выразить «деплой ждёт окончания reset»):
+# 0) lint-python (ruff) → lint-airflow (импорт DAG); при падении — деплой не запускается.
 # 1) Stack reset smoke — только если изменились «тяжёлые» пути; новый push отменяет предыдущий smoke (concurrency на job).
 # 2) Deploy на VM — на каждый push в workshop/moex-etl; ждёт завершения smoke, если тот запускался (успех или неуспех); новый деплой отменяет предыдущий деплой, но не трогает текущий smoke.
 #
@@ -13,7 +14,9 @@ on:
       - "docker-compose.yml"
       - "sql/bootstrap/**"
       - "scripts/**"
+      - "dags/**"
       - "airflow/**"
+      - "pyproject.toml"
       - ".github/workflows/workshop-ci.yml"
   push:
     branches: [main, master, workshop/moex-etl]
@@ -21,10 +24,62 @@ on:
       - "docker-compose.yml"
       - "sql/bootstrap/**"
       - "scripts/**"
+      - "dags/**"
       - "airflow/**"
+      - "pyproject.toml"
       - ".github/workflows/workshop-ci.yml"
 
 jobs:
+  lint-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Ruff (dags + airflow)
+        run: |
+          set -euo pipefail
+          pip install "ruff~=0.9.0"
+          ruff check dags airflow
+
+  lint-airflow:
+    needs: lint-python
+    runs-on: ubuntu-latest
+    env:
+      AIRFLOW_HOME: /tmp/airflow_ci
+      AIRFLOW__CORE__DAGS_FOLDER: ${{ github.workspace }}/dags
+      AIRFLOW__CORE__PLUGINS_FOLDER: ${{ github.workspace }}/airflow/plugins
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////tmp/airflow_ci/airflow.db
+      PYTHONPATH: ${{ github.workspace }}/dags
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: airflow/requirements.txt
+
+      - name: Install Airflow + DAG dependencies (constraints)
+        run: |
+          set -euo pipefail
+          CONSTRAINTS="https://raw.githubusercontent.com/apache/airflow/constraints-2.10.4/constraints-3.11.txt"
+          pip install "apache-airflow==2.10.4" -c "$CONSTRAINTS"
+          pip install -r airflow/requirements.txt -c "$CONSTRAINTS"
+
+      - name: DB migrate (sqlite) and DAG import check
+        run: |
+          set -euo pipefail
+          mkdir -p "$AIRFLOW_HOME"
+          airflow db migrate
+          airflow dags list-import-errors
+
   paths-filter:
     runs-on: ubuntu-latest
     outputs:
@@ -41,11 +96,13 @@ jobs:
               - 'docker-compose.yml'
               - 'sql/bootstrap/**'
               - 'scripts/**'
+              - 'dags/**'
               - 'airflow/**'
+              - 'pyproject.toml'
               - '.github/workflows/workshop-ci.yml'
 
   reset-and-up:
-    needs: paths-filter
+    needs: [paths-filter, lint-airflow]
     if: needs.paths-filter.outputs.smoke == 'true'
     runs-on: ubuntu-latest
     concurrency:
@@ -155,10 +212,14 @@ jobs:
           docker compose logs --tail 200 2>&1 || true
 
   deploy-vm:
-    needs: [paths-filter, reset-and-up]
+    needs: [lint-python, lint-airflow, paths-filter, reset-and-up]
+    # always(): иначе при skipped/failure у reset-and-up зависимый job не попадёт в if (см. needs + skipped в документации GHA).
     if: |
+      always() &&
       github.event_name != 'pull_request' &&
       github.ref == 'refs/heads/workshop/moex-etl' &&
+      needs.lint-python.result == 'success' &&
+      needs.lint-airflow.result == 'success' &&
       (needs.reset-and-up.result == 'skipped' || needs.reset-and-up.result == 'success' || needs.reset-and-up.result == 'failure')
     runs-on: ubuntu-latest
     concurrency:

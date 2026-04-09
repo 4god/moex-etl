@@ -27,6 +27,7 @@ def ods_economic_indicator_fetch() -> None:
         source_key=SOURCE_KEY,
         source_label=SOURCE_LABEL,
         topic=TOPIC_ODS_ECONOMIC_RAW,
+        raw_table="ods_economic_payloads",
         timeout=120,
     )
     ingest = WorkshopKafkaConsumeToRawOperator(
