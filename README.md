@@ -151,12 +151,11 @@ for s in kafka-connect kafka-ui bootstrap-apply airflow-init \
 done
 ```
 
-С профилем **`bi`** (Metabase) не запускайте всё одной командой `docker compose --profile bi up -d`: после основного стека подними Metabase отдельно, иначе возможна гонка сети с Airflow:
+**Metabase (`bi`):** перечислять сервисы вручную не нужно. В `docker-compose.yml` у Metabase заданы `depends_on` для `airflow-webserver`, `airflow-scheduler`, `airflow-triggerer`, поэтому **`docker compose --profile bi up -d --build`** поднимает BI **после** старта Airflow, без отдельной второй команды.
 
-```bash
-# после успешного стека без bi:
-docker compose --profile bi up -d metabase
-```
+Без Metabase / отдельного контейнера `dbt`: `docker compose up -d --build`.
+
+**Пошаговый цикл `for s in …`** выше в этом блоке — только **запасной вариант**, если `docker compose up` стабильно падает с ошибкой сети.
 
 В `docker-compose.yml` задано **явное имя сети** (`workshop_${COMPOSE_PROJECT_NAME}`), в CI задаётся уникальный `COMPOSE_PROJECT_NAME` на каждый run.
 
@@ -272,8 +271,10 @@ docker compose exec postgres psql -U etl -d workshop -c "SELECT city_code, versi
 ## 6. Metabase (BI)
 
 ```bash
-docker compose --profile bi up -d metabase
+docker compose --profile bi up -d --build
 ```
+
+Metabase стартует после Airflow (см. `depends_on` в `docker-compose.yml`).
 
 - URL: [http://localhost:8085](http://localhost:8085) (в контейнере порт 3000).
 - Подключение к БД: Host `postgres`, Port `5432`, DB `workshop`, User `etl`, Password `etl`.

@@ -228,6 +228,13 @@ services:
         condition: service_healthy
       bootstrap-apply:
         condition: service_completed_successfully
+      # После webserver / scheduler / triggerer — одна команда `docker compose --profile bi up` без гонки сети с Airflow.
+      airflow-webserver:
+        condition: service_started
+      airflow-scheduler:
+        condition: service_started
+      airflow-triggerer:
+        condition: service_started
 
   dbt:
     build:
