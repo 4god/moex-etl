@@ -9,6 +9,8 @@ x-airflow-common:
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    # Иначе в UI бывает Invalid URL 'http://:8793/log/...' (нет hostname для served logs)
+    AIRFLOW__WEBSERVER__BASE_URL: http://localhost:8080
     AIRFLOW_CONN_DWH: postgresql://etl:etl@postgres:5432/workshop
     KAFKA_BOOTSTRAP_SERVERS: kafka:9092
   volumes:
@@ -155,6 +157,7 @@ services:
   airflow-webserver:
     <<: *airflow-common
     container_name: workshop-airflow-webserver
+    hostname: workshop-airflow-webserver
     command: webserver
     restart: unless-stopped
     ports:
@@ -167,6 +170,7 @@ services:
   airflow-scheduler:
     <<: *airflow-common
     container_name: workshop-airflow-scheduler
+    hostname: workshop-airflow-scheduler
     command: scheduler
     restart: unless-stopped
     user: "${AIRFLOW_UID:-50000}:0"
