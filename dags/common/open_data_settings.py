@@ -30,6 +30,17 @@ def get_source_config(source_key: str) -> dict[str, Any]:
     return sources[source_key]
 
 
+def resolve_open_data_url(spec: dict[str, Any]) -> str:
+    """Собрать URL: либо `url`, либо `base_url`.format(**path_params)."""
+    if spec.get("url"):
+        return str(spec["url"])
+    return str(spec["base_url"]).format(**spec["path_params"])
+
+
+def open_data_query_params(spec: dict[str, Any]) -> dict[str, Any]:
+    return dict(spec.get("query_params") or {})
+
+
 def get_credentials(profile: str | None) -> dict[str, str]:
     if not profile:
         return {}

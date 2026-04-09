@@ -28,8 +28,11 @@ x-airflow-common:
     AIRFLOW_VAR_DBT_PROJECT_DIR: /opt/airflow/dbt
     # Kafka bootstrap для кода через os.getenv (см. pipeline_utils); значение совпадает с Variable kafka_bootstrap_servers.
     KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    # Плагины импортируют common.* из dags (дублирует образ; можно переопределить).
+    PYTHONPATH: /opt/airflow/dags
   volumes:
     - ./dags:/opt/airflow/dags
+    - ./airflow/plugins:/opt/airflow/plugins
     - ./sql:/opt/airflow/sql
     - ./logs:/opt/airflow/logs
     - ./config:/opt/airflow/config

@@ -212,6 +212,8 @@ docker compose exec airflow-webserver airflow variables import /opt/airflow/conf
 
 Учти: при активных `AIRFLOW_VAR_*` приоритет у переменных окружения; импорт в БД имеет смысл для окружений без compose.
 
+**Плагин воркшопа:** [`airflow/plugins/workshop_plugin.py`](airflow/plugins/workshop_plugin.py) регистрирует операторы `WorkshopJsonToKafkaOperator` и `WorkshopKafkaConsumeToRawOperator` (реализация в [`dags/common/operators/workshop_kafka.py`](dags/common/operators/workshop_kafka.py)). В UI: Admin → Plugins.
+
 </details>
 
 **Источники (запустить вручную в UI):** `src_moex_ingestion`, `src_cbr_ingestion`, `src_meteo_ingestion`.
@@ -439,7 +441,7 @@ HTML: `docs/sphinx/_build/html/index.html`.
 
 ## 13. Команды Makefile и Docker
 
-**Установка `make` и `psql` на хост VM** (один раз): `sudo ./scripts/vm_install_host_tools.sh` — то же выполняет [деплой в GitHub Actions](.github/workflows/deploy-vm.yml) после `git pull` (нужен sudo без пароля у пользователя SSH).
+**Установка `make` и `psql` на хост VM** (один раз): `sudo ./scripts/vm_install_host_tools.sh` — то же вызывает job деплоя в [Workshop CI](.github/workflows/workshop-ci.yml) после `git pull` (нужен sudo без пароля у пользователя SSH).
 
 **На VM без `make`** (после установки пакетов) можно пользоваться и Makefile, и скриптом из корня репозитория (права на выполнение: `chmod +x scripts/workshop.sh`):
 
@@ -477,12 +479,17 @@ git push -u origin workshop/moex-etl
 
 ---
 
-## 15. CI: деплой на VM
+## 15. CI: Workshop CI (smoke + деплой)
 
-- Workflow: [`.github/workflows/deploy-vm.yml`](.github/workflows/deploy-vm.yml) — push в `workshop/moex-etl` → SSH на VPS → `git pull` → **`VM_INSTALL_NONINTERACTIVE=1 bash scripts/vm_install_host_tools.sh`** (только `sudo -n`; ставит **make** и **postgresql-client**, если настроен **NOPASSWD** для пользователя деплоя). Если пароль для sudo нужен, шаг **пропускается с предупреждением**, деплой **не падает** — один раз на VM выполните вручную: `sudo ./scripts/vm_install_host_tools.sh`.
-- Smoke: [`.github/workflows/stack-reset-smoke.yml`](.github/workflows/stack-reset-smoke.yml) — Actions → **Stack reset smoke**.
+Один workflow: [`.github/workflows/workshop-ci.yml`](.github/workflows/workshop-ci.yml) (**Workshop CI** в списке Actions).
 
-У обоих включён **`concurrency` + `cancel-in-progress: true`**: новый запуск **этого же** workflow по **той же ветке** отменяет ещё идущий (второй push не ждёт завершения первого). Другой workflow из этого не останавливается; разные ветки — разные группы.
+1. **paths-filter** — по изменённым файлам решает, нужен ли тяжёлый reset.
+2. **reset-and-up** (stack reset smoke) — запускается **только** если затронуты пути (`docker-compose`, `sql/bootstrap`, `scripts`, `airflow`, сам workflow). У job свой **`concurrency`**: `stack-reset-smoke-${{ github.ref }}` и **`cancel-in-progress: true`** — новый push с тем же ref **отменяет** ещё идущий smoke, **не** трогая деплой в другом job напрямую.
+3. **deploy-vm** — на **каждый push** в ветку **`workshop/moex-etl`** (не PR). Job **`needs: [paths-filter, reset-and-up]`**: пока smoke **выполняется**, деплой **ждёт**; после завершения — идёт SSH на VPS **и при успехе, и при провале** smoke (если smoke был запущен). Если smoke **не** запускался (например, только README), `reset-and-up` в статусе **skipped** — деплой всё равно выполняется. Если smoke **отменён** (новый smoke забрал concurrency), деплой этого прогона **не** выполняется. У деплоя свой **`concurrency`**: `deploy-workshop-vm-${{ github.ref }}` и **`cancel-in-progress: true`** — несколько подряд деплоев: остаётся **последний**, предыдущие деплои отменяются, **smoke при этом не отменяется** (другая группа).
+
+Ручной запуск: Actions → **Workshop CI** → **Run workflow**.
+
+Деплой: `git pull` → **`VM_INSTALL_NONINTERACTIVE=1 bash scripts/vm_install_host_tools.sh`** (только `sudo -n`; **NOPASSWD**). Иначе предупреждение и продолжение; на VM один раз: `sudo ./scripts/vm_install_host_tools.sh`.
 
 **Secrets / Variables в GitHub Actions:** `VM_HOST`, `VM_USER`, `VM_SSH_KEY`, Variable `VM_DEPLOY_PATH` (абсолютный путь к клону на сервере).
 
@@ -578,7 +585,7 @@ ssh -i ~/.ssh/github_deploy_moex_etl deploy@<IP_VM>
 <details>
 <summary>Идеи для углубления</summary>
 
-**Инфраструктура:** новый сервис в Compose (Jupyter, ClickHouse...) и настройка окружения.
+**Инфраструктура:** новый сервис в Compose (Jupyter, ClickHouse...) и настройка окружения; добавление алертинга упавших ранов в тг канал или по почте.
 
 **Airflow:** ветвление в DAG, Datasets, DynamicTaskMapping, TriggerDagRunOperator, кастомный оператор в `airflow/plugins/`.
 

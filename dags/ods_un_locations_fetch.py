@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 import requests
 from airflow.decorators import dag, task
 from airflow.utils.task_group import TaskGroup
 
-from common.open_data_settings import get_source_config
+from common.dag_defaults import TAGS_ODS_OPEN_DATA, WORKSHOP_START_DATE
+from common.open_data_settings import (
+    get_source_config,
+    open_data_query_params,
+    resolve_open_data_url,
+)
 from common.pipeline_utils import (
     TOPIC_ODS_TERRITORY_RAW,
     consume_raw_to_postgres,
@@ -25,11 +28,11 @@ MAX_UN_LIST_PAGES = 5
         "ООН (Population API): пагинация через dynamic task mapping → Kafka → "
         "raw.ods_territory_payloads."
     ),
-    start_date=datetime(2024, 1, 1),
+    start_date=WORKSHOP_START_DATE,
     schedule="@weekly",
     catchup=False,
     max_active_tasks=4,
-    tags=["workshop", "ods", "open-data", "kafka", "un", "task-mapping"],
+    tags=[*TAGS_ODS_OPEN_DATA, "un", "task-mapping"],
 )
 def ods_un_locations_fetch() -> None:
     """Параллельные инстансы fetch (mapped tasks), ingest один — после всех."""
@@ -41,8 +44,8 @@ def ods_un_locations_fetch() -> None:
         @task(task_id="plan_page_numbers")
         def plan_page_numbers() -> list[int]:
             spec = get_source_config(SOURCE_KEY)
-            url = spec.get("url") or spec["base_url"].format(**spec["path_params"])
-            base_params = dict(spec.get("query_params") or {})
+            url = resolve_open_data_url(spec)
+            base_params = open_data_query_params(spec)
             r = requests.get(
                 url,
                 params={**base_params, "pageNumber": 1},
@@ -57,8 +60,8 @@ def ods_un_locations_fetch() -> None:
         @task(task_id="fetch_page_to_kafka")
         def fetch_page_to_kafka(page: int) -> None:
             spec = get_source_config(SOURCE_KEY)
-            url = spec.get("url") or spec["base_url"].format(**spec["path_params"])
-            base_params = dict(spec.get("query_params") or {})
+            url = resolve_open_data_url(spec)
+            base_params = open_data_query_params(spec)
             r = requests.get(
                 url,
                 params={**base_params, "pageNumber": page},

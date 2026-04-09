@@ -5,7 +5,11 @@ ARG AIRFLOW_CONSTRAINTS_URL="https://raw.githubusercontent.com/apache/airflow/co
 
 USER airflow
 COPY airflow_local_settings.py /opt/airflow/airflow_local_settings.py
+COPY plugins/ /opt/airflow/plugins/
 COPY requirements.txt /requirements.txt
+
+# Операторы в /opt/airflow/dags/common — плагин импортирует их при старте веб-сервера/воркеров.
+ENV PYTHONPATH=/opt/airflow/dags
 RUN pip install --upgrade pip setuptools wheel \
     && pip install --no-cache-dir -r /requirements.txt -c "${AIRFLOW_CONSTRAINTS_URL}" \
     && pip install --no-cache-dir "dbt-postgres==1.8.2"

@@ -1,5 +1,10 @@
-# Полный сброс томов и подъём стека в CI — проверка, что bootstrap и Airflow стартуют без ручных шагов.
-name: Stack reset smoke
+# Два типа задач в одном workflow (иначе между двумя workflow нельзя выразить «деплой ждёт окончания reset»):
+# 1) Stack reset smoke — только если изменились «тяжёлые» пути; новый push отменяет предыдущий smoke (concurrency на job).
+# 2) Deploy на VM — на каждый push в workshop/moex-etl; ждёт завершения smoke, если тот запускался (успех или неуспех); новый деплой отменяет предыдущий деплой, но не трогает текущий smoke.
+#
+# Секреты/переменные для deploy: VM_HOST, VM_USER, VM_SSH_KEY, VM_DEPLOY_PATH (см. README).
+
+name: Workshop CI
 
 on:
   workflow_dispatch:
@@ -9,6 +14,7 @@ on:
       - "sql/bootstrap/**"
       - "scripts/**"
       - "airflow/**"
+      - ".github/workflows/workshop-ci.yml"
   push:
     branches: [main, master, workshop/moex-etl]
     paths:
@@ -16,31 +22,46 @@ on:
       - "sql/bootstrap/**"
       - "scripts/**"
       - "airflow/**"
-
-# Новый запуск этого workflow по той же ветке (push/PR) отменяет ещё идущий — второй коммит не ждёт первый.
-# См. https://docs.github.com/en/actions/using-jobs/using-concurrency
-concurrency:
-  group: stack-reset-smoke-${{ github.ref }}
-  cancel-in-progress: true
+      - ".github/workflows/workshop-ci.yml"
 
 jobs:
-  reset-and-up:
+  paths-filter:
     runs-on: ubuntu-latest
-    # Уникальный project/network на каждый запуск — снимает гонки со «старым» id сети в Docker.
+    outputs:
+      smoke: ${{ steps.filter.outputs.smoke }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            smoke:
+              - 'docker-compose.yml'
+              - 'sql/bootstrap/**'
+              - 'scripts/**'
+              - 'airflow/**'
+              - '.github/workflows/workshop-ci.yml'
+
+  reset-and-up:
+    needs: paths-filter
+    if: needs.paths-filter.outputs.smoke == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: stack-reset-smoke-${{ github.ref }}
+      cancel-in-progress: true
     env:
       COMPOSE_PROJECT_NAME: smoke${{ github.run_id }}${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
 
-      # Полный down + prune сетей: иначе на runner иногда «network … not found» при следующем up.
       - name: Down volumes and prune networks
         run: |
           set -euo pipefail
           docker compose down -v --remove-orphans || true
           docker network prune -f
 
-      # 1) kafka + postgres + healthy. 2) Остальные сервисы по одному — иначе после scheduler
-      # параллельно стартуют triggerer и др., и на Docker в CI снова «network … not found».
       - name: Up (bootstrap-apply + Airflow)
         env:
           COMPOSE_PARALLEL_LIMIT: "1"
@@ -62,7 +83,6 @@ jobs:
               sleep 2
             done
           }
-          # Порядок: зависимости слева направо; airflow-* по одному (без параллельного attach к сети).
           compose_up_serial() {
             wait_kafka_postgres
             local svc
@@ -118,3 +138,32 @@ jobs:
       - name: Logs on failure
         if: failure()
         run: docker compose logs --tail 120
+
+  deploy-vm:
+    needs: [paths-filter, reset-and-up]
+    if: |
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/workshop/moex-etl' &&
+      (needs.reset-and-up.result == 'skipped' || needs.reset-and-up.result == 'success' || needs.reset-and-up.result == 'failure')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-workshop-vm-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: SSH — git pull и docker compose
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ vars.VM_DEPLOY_PATH }}"
+            git fetch origin
+            git checkout workshop/moex-etl
+            git pull --ff-only origin workshop/moex-etl
+            VM_INSTALL_NONINTERACTIVE=1 bash scripts/vm_install_host_tools.sh
+            docker compose build
+            docker compose --profile bi up -d
+            docker compose exec -T airflow-scheduler airflow dags reserialize || true
