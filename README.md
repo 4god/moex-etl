@@ -178,7 +178,7 @@ docker compose ps
 ### 0) Требования
 
 - Docker Desktop
-- Свободные порты: `5432`, `8080`, `8081`, `8085` (Metabase), `8083`, `9092`
+- Свободные порты: `5432`, `8080` (Airflow), `8081` (dbt docs), `8085` (Metabase), `8083` (Kafka Connect), `8090` (Kafka UI), `9092` (Kafka)
 
 ### 1) Подготовка
 
@@ -218,6 +218,10 @@ docker compose ps
 Debezium Connect API:
 - URL: [http://localhost:8083](http://localhost:8083)
 - Проверка статуса: `curl http://localhost:8083/connectors`
+
+Kafka UI (топики, сообщения, consumer groups, подключённый Kafka Connect):
+- URL: [http://localhost:8090](http://localhost:8090)
+- Сервис в `docker-compose.yml`: `kafka-ui` (образ `ghcr.io/kafbat/kafka-ui`)
 
 dbt Docs:
 - URL: [http://localhost:8081](http://localhost:8081)

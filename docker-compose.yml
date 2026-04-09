@@ -77,6 +77,23 @@ services:
     volumes:
       - ./debezium/connectors:/debezium/connectors
 
+  # Веб-UI: топики, сообщения, consumer groups; опционально Kafka Connect (Debezium).
+  # Локально: http://localhost:8090 — не выставляйте в интернет без аутентификации.
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: workshop-kafka-ui
+    ports:
+      - "8090:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: workshop
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+      DYNAMIC_CONFIG_ENABLED: "true"
+
   postgres:
     image: postgres:16
     container_name: workshop-postgres
