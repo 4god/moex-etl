@@ -479,7 +479,7 @@ git push -u origin workshop/moex-etl
 
 ## 15. CI: деплой на VM
 
-- Workflow: [`.github/workflows/deploy-vm.yml`](.github/workflows/deploy-vm.yml) — push в `workshop/moex-etl` → SSH на VPS → `git pull` → **`scripts/vm_install_host_tools.sh`** (`apt-get install` **make** и **postgresql-client** / аналог на dnf, apk) → `docker compose up` (**bootstrap-apply** выполняется сам). Пользователь SSH на VM должен иметь **sudo без пароля** для `apt-get`/`dnf`/`apk` (или задайте в `/etc/sudoers.d/` для `deploy`).
+- Workflow: [`.github/workflows/deploy-vm.yml`](.github/workflows/deploy-vm.yml) — push в `workshop/moex-etl` → SSH на VPS → `git pull` → **`VM_INSTALL_NONINTERACTIVE=1 bash scripts/vm_install_host_tools.sh`** (только `sudo -n`; ставит **make** и **postgresql-client**, если настроен **NOPASSWD** для пользователя деплоя). Если пароль для sudo нужен, шаг **пропускается с предупреждением**, деплой **не падает** — один раз на VM выполните вручную: `sudo ./scripts/vm_install_host_tools.sh`.
 - Smoke: [`.github/workflows/stack-reset-smoke.yml`](.github/workflows/stack-reset-smoke.yml) — Actions → **Stack reset smoke**.
 
 У обоих включён **`concurrency` + `cancel-in-progress: true`**: новый запуск **этого же** workflow по **той же ветке** отменяет ещё идущий (второй push не ждёт завершения первого). Другой workflow из этого не останавливается; разные ветки — разные группы.
