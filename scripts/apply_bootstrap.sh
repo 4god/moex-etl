@@ -7,8 +7,7 @@ export PGHOST="${PGHOST:-postgres}"
 export PGUSER="${PGUSER:-postgres}"
 export PGPASSWORD="${PGPASSWORD:-postgres}"
 export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-10}"
-# Идемпотентные CREATE … IF NOT EXISTS дают NOTICE «already exists» — убираем шум в логах (ERROR/WARNING видны).
-export PGOPTIONS="-c client_min_messages=WARNING ${PGOPTIONS:-}"
+# client_min_messages задаём только на прогон файлов (не на цикл ожидания), чтобы не мешать отладке подключения.
 
 echo "==> bootstrap-apply: PGHOST=${PGHOST} PGUSER=${PGUSER}"
 echo "==> bootstrap-apply: contents of /bootstrap"
@@ -60,9 +59,19 @@ if [[ ${#files[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# NOTICE «already exists» отключаем только здесь; при сбое показываем полный вывод psql.
 for f in "${files[@]}"; do
   echo "==> Applying $(basename "$f")"
-  psql -h "$PGHOST" -U "$PGUSER" -v ON_ERROR_STOP=1 -d postgres -f "$f"
+  set +e
+  env PGOPTIONS="-c client_min_messages=WARNING ${PGOPTIONS:-}" \
+    psql -h "$PGHOST" -U "$PGUSER" -v ON_ERROR_STOP=1 -d postgres -f "$f"
+  rc=$?
+  set -e
+  if [[ "$rc" -ne 0 ]]; then
+    echo "ERROR: psql завершился с кодом ${rc} на файле $(basename "$f"). Сообщение PostgreSQL — в выводе выше." >&2
+    echo "Подсказка: docker logs workshop-bootstrap-apply; ручной прогон: docker compose run --rm bootstrap-apply" >&2
+    exit "$rc"
+  fi
 done
 
 echo "Bootstrap apply finished OK (${#files[@]} files)."
