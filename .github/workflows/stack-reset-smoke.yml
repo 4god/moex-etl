@@ -24,6 +24,9 @@ concurrency:
 jobs:
   reset-and-up:
     runs-on: ubuntu-latest
+    # Уникальный project/network на каждый запуск — снимает гонки со «старым» id сети в Docker.
+    env:
+      COMPOSE_PROJECT_NAME: smoke${{ github.run_id }}${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
 

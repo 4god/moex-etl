@@ -151,6 +151,15 @@ for s in kafka-connect kafka-ui bootstrap-apply airflow-init \
 done
 ```
 
+С профилем **`bi`** (Metabase) не запускайте всё одной командой `docker compose --profile bi up -d`: после основного стека подними Metabase отдельно, иначе возможна гонка сети с Airflow:
+
+```bash
+# после успешного стека без bi:
+docker compose --profile bi up -d metabase
+```
+
+В `docker-compose.yml` задано **явное имя сети** (`workshop_${COMPOSE_PROJECT_NAME}`), в CI задаётся уникальный `COMPOSE_PROJECT_NAME` на каждый run.
+
 На macOS/Windows при повторении сбрось Docker (Restart Docker Desktop / «Clean / Purge data» в крайнем случае).
 
 </details>

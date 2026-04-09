@@ -263,6 +263,13 @@ services:
       bootstrap-apply:
         condition: service_completed_successfully
 
+# Явное имя сети: меньше «битых» id при Recreate/параллельном старте (см. CI / --profile bi).
+# COMPOSE_PROJECT_NAME задаётся в CI (уникально на run); локально — имя каталога по умолчанию.
+networks:
+  default:
+    name: workshop_${COMPOSE_PROJECT_NAME:-etl_demo}
+    driver: bridge
+
 volumes:
   postgres-data:
   kafka-data:
