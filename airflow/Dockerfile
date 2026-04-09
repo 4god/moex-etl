@@ -10,6 +10,7 @@ COPY requirements.txt /requirements.txt
 
 # Операторы в /opt/airflow/dags/common — плагин импортирует их при старте веб-сервера/воркеров.
 ENV PYTHONPATH=/opt/airflow/dags
+# dbt-postgres без верхней границы по dbt-core тянет dbt-core 1.11+ и protobuf 6.x — ломает совместимость с google-* в Airflow (protobuf<6).
 RUN pip install --upgrade pip setuptools wheel \
     && pip install --no-cache-dir -r /requirements.txt -c "${AIRFLOW_CONSTRAINTS_URL}" \
-    && pip install --no-cache-dir "dbt-postgres==1.8.2"
+    && pip install --no-cache-dir "dbt-core==1.8.7" "dbt-postgres==1.8.2"

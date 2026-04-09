@@ -13,7 +13,9 @@ usage() {
   cat <<'EOF'
 Использование: ./scripts/workshop.sh <команда>
 
-  up                 docker compose up -d --build (STACK_PROFILES по умолчанию: --profile bi)
+  up                 docker compose up -d --build (образы Airflow и др.)
+  up-fast            docker compose up -d без --build (правки только в dags/sql/config на томах)
+  reload-airflow     restart webserver + scheduler + triggerer
   down               docker compose down
   reset-db           ./scripts/reset_stack.sh
   apply-bootstrap    повторный sql/bootstrap через контейнер bootstrap-apply
@@ -32,6 +34,13 @@ case "${1:-}" in
   up)
     # shellcheck disable=SC2086
     docker compose ${STACK_PROFILES} up -d --build
+    ;;
+  up-fast)
+    # shellcheck disable=SC2086
+    docker compose ${STACK_PROFILES} up -d
+    ;;
+  reload-airflow)
+    docker compose restart airflow-webserver airflow-scheduler airflow-triggerer
     ;;
   down)
     docker compose down

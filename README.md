@@ -6,8 +6,33 @@
 
 ---
 
+## Студентам
+
+Работа **на стенде преподавателя (VM):** в адресах ниже подставьте **`HOST`** = IP или домен, который дал преподаватель (порты должны быть открыты в файрволе). Обычно достаточно **браузера**; SSH на ВМ — только если так договорились.
+
+| Сервис | URL | Логин | Пароль |
+|--------|-----|-------|--------|
+| Airflow | `http://HOST:8080` | `workshop_student_XX` | `workshop_stuXX` |
+| Metabase | `http://HOST:8085` | `workshop_student_XX@workshop.local` | `workshop_stuXX` |
+| Kafka UI | `http://HOST:8090` | `workshop` | `workshop_kafka_ui` |
+| PostgreSQL | `HOST:5432`, БД `workshop` или `sourcedb` | `workshop_student_XX` | `workshop_stuXX` |
+| Kafka (топики) | `HOST:9092` | нет | — |
+
+**`XX`** — ваш номер **01…30** (в пароле две цифры: `workshop_stu01` … `workshop_stu30`).
+
+- **Metabase:** в вопросах выбирайте своё подключение **«Workshop PG (student XX)»**, не `etl`.
+- **Свой код:** DAG — в [`dags/workshop_students/`](dags/workshop_students/); таблицы в Postgres — только в схеме **`stu_XX`**. Общие слои (`raw`, `stg`, …) — **только чтение**. Не трогайте чужие учётки, коннекторы Debezium и системные Connections в Airflow (`DWH`, `SOURCEDB`); на сервере не запускайте `docker compose down -v`.
+- **Git:** клон репозитория, ветка от **`workshop/moex-etl`**, изменения через merge/pull request — по правилам преподавателя. После `git pull` новые или изменённые DAG в `dags/` обычно **не требуют** пересборки образов и полного рестарта стека — scheduler подхватывает файлы с диска (см. [§13](#13-команды-makefile-и-docker)).
+- **Пароль:** после первого входа желательно сменить (Airflow — меню пользователя; Metabase — настройки аккаунта). Принудительного «смени сейчас» у локальных логинов нет.
+
+**Свой ноутбук:** поднять Docker-стек локально — раздел [Быстрый старт](#3-быстрый-старт); там адреса с **`localhost`**.
+
+---
+
 <details>
 <summary><strong>Оглавление</strong> (нажмите, чтобы развернуть)</summary>
+
+[Студентам](#студентам) · доступ к ВМ, логины, git
 
 1. [Документация и карта сервисов](#1-документация-и-карта-сервисов)
 2. [Структура репозитория](#2-структура-репозитория)
@@ -23,8 +48,9 @@
 12. [Sphinx](#12-sphinx)
 13. [Команды Makefile и Docker](#13-команды-makefile-и-docker)
 14. [Публикация в GitHub](#14-публикация-в-github)
-15. [CI: деплой на VM](#15-ci-деплой-на-vm)
-16. [Дополнительные задания](#16-дополнительные-задания)
+15. [CI: Workshop CI](#15-ci-workshop-ci-smoke--деплой)
+16. [Учётки: преподаватель](#16-учётки-преподаватель)
+17. [Дополнительные задания](#17-дополнительные-задания)
 
 </details>
 
@@ -75,6 +101,8 @@
 ---
 
 ## 3. Быстрый старт
+
+Подключение к **чужой ВМ** (без Docker у себя): [Студентам](#студентам).
 
 **Порты на хосте:** `5432`, `8080` (Airflow), `8081` (dbt docs), `8083` (Kafka Connect), `8085` (Metabase, profile `bi`), `8090` (Kafka UI), `9092` (Kafka).
 
@@ -170,6 +198,8 @@ done
 ---
 
 ## 4. Airflow, URL сервисов, DAG
+
+На **стенде преподавателя** подставьте его `HOST` вместо `localhost` (см. [Студентам](#студентам)).
 
 | Сервис | URL | Примечание |
 |--------|-----|------------|
@@ -279,7 +309,7 @@ docker compose --profile bi up -d --build
 Metabase стартует после Airflow (см. `depends_on` в `docker-compose.yml`).
 
 - URL: [http://localhost:8085](http://localhost:8085) (в контейнере порт 3000).
-- Учётки студентов и подключения к БД создаются автоматически (см. **§16**). Для вопросов используйте своё подключение **«Workshop PG (student XX)»**, не общий `etl`.
+- Учётки и подключения к БД — см. [Студентам](#студентам) и [§16](#16-учётки-преподаватель). В вопросах выберите **«Workshop PG (student XX)»**, не `etl`.
 - Таблица для примеров: `datamart.dm_security_snapshot`.
 
 <details>
@@ -447,19 +477,32 @@ HTML: `docs/sphinx/_build/html/index.html`.
 
 | Задача | Через make | Без make (bash) |
 |--------|------------|-----------------|
-| Подъём стека с BI | `make up` | `./scripts/workshop.sh up` |
+| Подъём стека с BI (пересборка образов) | `make up` | `./scripts/workshop.sh up` |
+| Подъём без `--build` | `make up-fast` | `./scripts/workshop.sh up-fast` |
 | Остановка | `make down` | `./scripts/workshop.sh down` |
 | Сброс томов и перезапуск | `make reset-db` | `./scripts/workshop.sh reset-db` |
 | Повторный bootstrap SQL | `make apply-bootstrap` | `./scripts/workshop.sh apply-bootstrap` |
 | Учётки студентов (Airflow + Metabase) | `make provision-students` | `./scripts/workshop.sh provision-students` |
+| Рестарт Airflow (webserver + scheduler + triggerer) | `make reload-airflow` | `./scripts/workshop.sh reload-airflow` |
 | Статика карты сервисов (`docs/`, порт 8765) | `make serve-docs` | `cd docs && python3 -m http.server 8765 --bind 0.0.0.0` |
 
 Минимальный стек **без Metabase**: `STACK_PROFILES= ./scripts/workshop.sh up` (как `make up STACK_PROFILES=`).
 
+**Что меняли → что запускать** (чтобы не гонять лишний `build` и не рестартовать весь стек без нужды):
+
+| Изменения | Обычно достаточно |
+|-----------|-------------------|
+| `dags/`, `config/`, `sql/tasks/`, правки в уже смонтированных файлах | Ничего или `make up-fast`, если нужно поднять остановленный сервис. Новые DAG Airflow подхватывает scheduler с диска; полный рестарт контейнеров не обязателен. |
+| «Застрял» UI или нужен жёсткий перечитать процессы Airflow | `make reload-airflow` |
+| `sql/bootstrap/` (DDL, учётки, фундаментальные объекты) | `make apply-bootstrap` или полный `up` (сервис **`bootstrap-apply`** при `up` тоже догоняет новые `*.sql`) |
+| `airflow/Dockerfile`, `airflow/requirements.txt`, `airflow/plugins/` (если не только volume), образы приложений | `make up` (с `--build`) или явно `docker compose build …` и перезапуск затронутых сервисов |
+| `docker-compose.yml`, порты, новый сервис | `docker compose up -d` для нужных сервисов или `make up-fast` / `make up` по ситуации |
+
 **Bootstrap:** при каждом `docker compose up` сервис **`bootstrap-apply`** прогоняет `sql/bootstrap/*.sql` (новые файлы подхватываются без ручного `psql`).
 
+Полезные команды отладки:
+
 ```bash
-docker compose restart airflow-webserver airflow-scheduler airflow-triggerer
 docker compose logs -f airflow-scheduler airflow-triggerer
 docker compose --profile dbt run --rm dbt dbt --version
 ```
@@ -481,17 +524,20 @@ git push -u origin workshop/moex-etl
 
 ## 15. CI: Workshop CI (smoke + деплой)
 
-Один workflow: [`.github/workflows/workshop-ci.yml`](.github/workflows/workshop-ci.yml) (**Workshop CI** в списке Actions).
+Файл: [`.github/workflows/workshop-ci.yml`](.github/workflows/workshop-ci.yml). В Actions: **Workshop CI**.
 
-1. **paths-filter** — по изменённым файлам решает, нужен ли тяжёлый reset.
-2. **reset-and-up** (stack reset smoke) — запускается **только** если затронуты пути (`docker-compose`, `sql/bootstrap`, `scripts`, `airflow`, сам workflow). У job свой **`concurrency`**: `stack-reset-smoke-${{ github.ref }}` и **`cancel-in-progress: true`** — новый push с тем же ref **отменяет** ещё идущий smoke, **не** трогая деплой в другом job напрямую.
-3. **deploy-vm** — на **каждый push** в ветку **`workshop/moex-etl`** (не PR). Job **`needs: [paths-filter, reset-and-up]`**: пока smoke **выполняется**, деплой **ждёт**; после завершения — идёт SSH на VPS **и при успехе, и при провале** smoke (если smoke был запущен). Если smoke **не** запускался (например, только README), `reset-and-up` в статусе **skipped** — деплой всё равно выполняется. Если smoke **отменён** (новый smoke забрал concurrency), деплой этого прогона **не** выполняется. У деплоя свой **`concurrency`**: `deploy-workshop-vm-${{ github.ref }}` и **`cancel-in-progress: true`** — несколько подряд деплоев: остаётся **последний**, предыдущие деплои отменяются, **smoke при этом не отменяется** (другая группа).
+Кратко: при push в `workshop/moex-etl` сначала при необходимости гоняется **полный smoke** в CI (docker compose с нуля), затем **деплой на VPS** по SSH (`git pull`, `docker compose build`, `up`). Деплой **ждёт** окончания smoke, если тот запускался; повторные деплои **отменяют** предыдущие деплои, но **не** отменяют чужой smoke (разные `concurrency`-группы). Ручной запуск: **Run workflow**.
 
-Ручной запуск: Actions → **Workshop CI** → **Run workflow**.
+**Secrets / Variables:** `VM_HOST`, `VM_USER`, `VM_SSH_KEY`, `VM_DEPLOY_PATH` (путь к клону на сервере). На VM при деплое: [`scripts/vm_install_host_tools.sh`](scripts/vm_install_host_tools.sh) (`make` / `psql` на хосте; нужен `sudo -n` или один раз вручную `sudo ./scripts/vm_install_host_tools.sh`).
 
-Деплой: `git pull` → **`VM_INSTALL_NONINTERACTIVE=1 bash scripts/vm_install_host_tools.sh`** (только `sudo -n`; **NOPASSWD**). Иначе предупреждение и продолжение; на VM один раз: `sudo ./scripts/vm_install_host_tools.sh`.
+<details>
+<summary>Подробности (paths-filter, отмены, SSH deploy)</summary>
 
-**Secrets / Variables в GitHub Actions:** `VM_HOST`, `VM_USER`, `VM_SSH_KEY`, Variable `VM_DEPLOY_PATH` (абсолютный путь к клону на сервере).
+1. **paths-filter** — решает, нужен ли тяжёлый reset по списку путей.
+2. **reset-and-up** — только если пути затронуты. `concurrency: stack-reset-smoke-${{ github.ref }}`, `cancel-in-progress: true` — новый smoke отменяет предыдущий на той же ветке.
+3. **deploy-vm** — не PR; `needs` smoke: ждёт завершения; деплой идёт и после успеха, и после провала smoke. Если smoke **skipped** — деплой всё равно. Если smoke **cancelled** — деплой этого прогона нет. `concurrency: deploy-workshop-vm-${{ github.ref }}`, `cancel-in-progress: true` — отменяются только старые деплои.
+
+</details>
 
 <details>
 <summary>Полная настройка SSH-ключа и пользователя <code>deploy</code> на VPS</summary>
@@ -536,7 +582,7 @@ sudo chmod 440 /etc/sudoers.d/deploy-workshop
 ssh -i ~/.ssh/github_deploy_moex_etl deploy@<IP_VM>
 ```
 
-**4. Secrets в GitHub:** см. таблицу выше. Проверка: Actions → **Deploy to workshop VM** → Run workflow.
+**4. Secrets в GitHub:** см. таблицу выше. Проверка: Actions → **Workshop CI** → Run workflow.
 
 **Безопасность:** не коммитить приватный ключ; при утечке — новая пара и обновление Secret + `authorized_keys`.
 
@@ -544,39 +590,28 @@ ssh -i ~/.ssh/github_deploy_moex_etl deploy@<IP_VM>
 
 ---
 
-## 16. Учётки студентов (все сервисы)
+## 16. Учётки: преподаватель
 
-Номер студента **01–30** задаёт суффикс: логины вида `workshop_student_01`, пароли **`workshop_stu01`** … **`workshop_stu30`** (две цифры в пароле). Учётки **создаются автоматически** при `docker compose up`: PostgreSQL — из bootstrap, Airflow — сервис `workshop-provision-airflow`, Metabase — `workshop-provision-metabase` (при `--profile bi`). Повторная догонка: `make provision-students` или **`./scripts/workshop.sh provision-students`** (удобно на VM без `make`).
+Студентам: таблица входов и правила — в начале: [§ Студентам](#студентам).
 
-### Смена пароля после первого входа
+Учётки **01–30** создаются при `docker compose up` (Postgres — bootstrap; Airflow — `workshop-provision-airflow`; Metabase — `workshop-provision-metabase` с `--profile bi`). Повтор: `make provision-students` или `./scripts/workshop.sh provision-students`.
 
-У **локальных** учёток Airflow (FAB) и Metabase **нет** встроенного режима «обязательно сменить пароль при первом входе», как в корпоративном SSO. Рекомендуемая практика:
+Права в БД: [`sql/bootstrap/080_workshop_student_sandboxes.sql`](sql/bootstrap/080_workshop_student_sandboxes.sql). Metabase: [`docs/metabase_student_setup.md`](docs/metabase_student_setup.md).
 
-| Сервис | Что сделать |
-|--------|-------------|
-| **Airflow** | После входа на главной странице показывается **жёлтое предупреждение**; пароль меняют: **меню пользователя (справа вверху) → Your Profile / User** → смена пароля (или выход и **Forgot password**, если включите сброс по почте в настройках). |
-| **Metabase** | **Шестерёнка → Account settings → Password** (или аналог в вашей версии). |
-| **PostgreSQL** | В своей сессии: `ALTER ROLE текущая_роль PASSWORD 'новый_секрет';` либо `\password` в `psql`. |
+**Админы (не студенты):** Airflow `admin` / `admin`; Metabase `workshop_admin@workshop.local` / `workshop_admin`; Postgres `postgres` / `postgres`.
 
-**Kafka UI** — один общий логин `workshop` / `workshop_kafka_ui`; при необходимости смените пароль в `docker-compose.yml` (переменные `SPRING_SECURITY_USER_*`) и перезапустите контейнер.
+<details>
+<summary>Локальный запуск у студента (localhost)</summary>
 
-**Правила воркшопа:** можно создавать топики Kafka, свои DAG в [`dags/workshop_students/`](dags/workshop_students/), объекты в своей схеме `stu_XX` и вопросы в Metabase. **Не удаляйте** чужие учётки, не останавливайте чужие DAG без договорённости, не трогайте коннекторы Debezium/Kafka Connect и системные Connections в Airflow (`DWH`, `SOURCEDB`), не выполняйте `docker compose down -v` и не правьте тома инфраструктуры — это ломает стенд для всех.
+| Сервис | URL | Логин | Пароль |
+|--------|-----|-------|--------|
+| Airflow | http://localhost:8080 | `workshop_student_XX` | `workshop_stuXX` |
+| Metabase | http://localhost:8085 | `workshop_student_XX@workshop.local` | `workshop_stuXX` |
+| Kafka UI | http://localhost:8090 | `workshop` | `workshop_kafka_ui` |
+| Postgres | localhost:5432 | `workshop_student_XX` | `workshop_stuXX` |
+| Kafka Connect | http://localhost:8083 | без логина | — |
 
-| Сервис | URL (локально) | Логин | Пароль |
-|--------|----------------|-------|--------|
-| **Airflow** | [http://localhost:8080](http://localhost:8080) | `workshop_student_XX` | `workshop_stuXX` |
-| **Metabase** | [http://localhost:8085](http://localhost:8085) | `workshop_student_XX@workshop.local` | `workshop_stuXX` |
-| **PostgreSQL** | `localhost:5432`, БД `workshop` | `workshop_student_XX` | `workshop_stuXX` |
-| **PostgreSQL** (OLTP CDC) | `localhost:5432`, БД `sourcedb` | `workshop_student_XX` | `workshop_stuXX` |
-| **Kafka** (брокер) | `localhost:9092` | нет (PLAINTEXT) | нет |
-| **Kafka UI** | [http://localhost:8090](http://localhost:8090) | `workshop` | `workshop_kafka_ui` |
-| **Kafka Connect** | [http://localhost:8083](http://localhost:8083) | нет | нет |
-
-**Администраторы (преподаватель):** Airflow `admin` / `admin`; Metabase `workshop_admin@workshop.local` / `workshop_admin`; PostgreSQL суперпользователь `postgres` / `postgres`.
-
-**PostgreSQL (права студента):** чтение слоёв `raw`, `stg`, `vault`, `datamart`, `analytics` и `sourcedb` (только `SELECT`); полный контроль в своей схеме `stu_XX`. См. [`sql/bootstrap/080_workshop_student_sandboxes.sql`](sql/bootstrap/080_workshop_student_sandboxes.sql). Детали Metabase: [`docs/metabase_student_setup.md`](docs/metabase_student_setup.md).
-
-На удалённой машине подставьте вместо `localhost` **IP или DNS** хоста; порты должны быть открыты файрволом.
+</details>
 
 ---
 

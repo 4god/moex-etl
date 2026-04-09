@@ -1,13 +1,22 @@
-.PHONY: docs-sphinx docs-lineage dbt-run dbt-test up down reset-db apply-bootstrap provision-students serve-docs
+.PHONY: docs-sphinx docs-lineage dbt-run dbt-test up up-fast down reset-db apply-bootstrap provision-students reload-airflow serve-docs
 
 # Профиль BI (Metabase): по умолчанию как в README. Для минимального стека: make up STACK_PROFILES=
 STACK_PROFILES ?= --profile bi
 
+# Полная пересборка образов (нужна после смены airflow/Dockerfile, requirements, плагинов).
 up:
 	docker compose $(STACK_PROFILES) up -d --build
 
+# Только поднять/обновить контейнеры без build — для правок в dags/, sql/, config/ на смонтированных томах.
+up-fast:
+	docker compose $(STACK_PROFILES) up -d
+
 down:
 	docker compose down
+
+# Рестарт процессов Airflow (редко: новые DAG и так подхватываются scheduler'ом с диска).
+reload-airflow:
+	docker compose restart airflow-webserver airflow-scheduler airflow-triggerer
 
 # Сброс томов Postgres/Kafka и перезапуск (чистая БД + повторный bootstrap)
 reset-db:
