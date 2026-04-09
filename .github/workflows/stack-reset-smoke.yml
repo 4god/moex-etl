@@ -27,12 +27,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Down volumes and build
-        run: docker compose down -v
+      # Полный down + prune сетей: иначе на runner иногда «network … not found» при следующем up.
+      - name: Down volumes and prune networks
+        run: |
+          set -euo pipefail
+          docker compose down -v --remove-orphans || true
+          docker network prune -f
 
       # Без profile bi — быстрее CI (без Metabase/dbt), bootstrap-apply и Airflow в дефолтном compose
       - name: Up (bootstrap-apply + Airflow)
-        run: docker compose up -d --build
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if docker compose up -d --build --remove-orphans; then
+              exit 0
+            fi
+            echo "compose up failed (attempt ${attempt}/3), pruning networks and retrying..."
+            docker compose down --remove-orphans || true
+            docker network prune -f
+            sleep 5
+          done
+          exit 1
 
       - name: Wait for bootstrap-apply
         run: |

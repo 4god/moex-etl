@@ -128,6 +128,21 @@ docker compose ps
 
 **Git Bash / MSYS2** — те же команды, что для macOS.
 
+<details>
+<summary>Ошибка Docker: «failed to set up container networking: network … not found»</summary>
+
+Часто после прерванного `docker compose up`, отмены job в CI или гонки при старте контейнеров. Попробуй:
+
+```bash
+docker compose down --remove-orphans
+docker network prune -f
+docker compose up -d --build --remove-orphans
+```
+
+На macOS/Windows при повторении сбрось Docker (Restart Docker Desktop / «Clean / Purge data» в крайнем случае).
+
+</details>
+
 На Windows проект лучше держать на локальном диске (например `C:\work\etl_demo`), не в сетевой папке.
 
 </details>
