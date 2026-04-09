@@ -16,6 +16,7 @@ x-airflow-common:
     - ./sql:/opt/airflow/sql
     - ./logs:/opt/airflow/logs
     - ./config:/opt/airflow/config
+    - ./dbt:/opt/airflow/dbt
   depends_on:
     postgres:
       condition: service_healthy
@@ -79,6 +80,14 @@ services:
   postgres:
     image: postgres:16
     container_name: workshop-postgres
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - pg_stat_statements.track=all
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

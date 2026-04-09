@@ -2,7 +2,7 @@ version: 2
 
 models:
   - name: fct_moex_liquidity
-    description: "Базовая витрина ликвидности по бумагам MOEX."
+    description: "Ликвидность MOEX; читает ref(stg_dm_security_snapshot) ← datamart после DAG vault/marts."
     columns:
       - name: trade_date
         tests:
@@ -31,7 +31,7 @@ models:
           - not_null
 
   - name: fct_cbr_fx_rates
-    description: "Курсы валют ЦБ РФ по дням."
+    description: "Курсы ЦБ; ref(stg_cbr_fx_rates) ← STG после src_cbr_ingestion."
     columns:
       - name: rate_date
         tests:
@@ -41,7 +41,7 @@ models:
           - not_null
 
   - name: fct_moscow_weather_daily
-    description: "Дневные погодные показатели по Москве."
+    description: "Погода; ref(stg_moscow_weather_daily) ← STG после src_meteo_ingestion."
     columns:
       - name: weather_date
         tests:
@@ -51,7 +51,7 @@ models:
           - not_null
 
   - name: fct_moex_weather_snapshot
-    description: "Объединенная витрина MOEX + погодный режим (объединение только в витрине)."
+    description: "MOEX (datamart) + режим погоды (analytics): ref(stg_dm_security_snapshot) ⋈ ref(stg_dim_moscow_weather_regime)."
     columns:
       - name: trade_date
         tests:

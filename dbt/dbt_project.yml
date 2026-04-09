@@ -14,3 +14,7 @@ clean-targets:
 models:
   moex_workshop_dbt:
     +materialized: view
+    staging:
+      +materialized: view
+    marts:
+      +materialized: view

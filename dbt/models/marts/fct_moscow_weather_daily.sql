@@ -2,7 +2,8 @@
   config(
     materialized='view',
     schema='analytics',
-    alias='fct_moscow_weather_daily'
+    alias='fct_moscow_weather_daily',
+    tags=['marts', 'source:meteo', 'dataset:stg_meteo']
   )
 }}
 
@@ -15,4 +16,4 @@ select
     weather_regime,
     is_precipitation_day,
     updated_at
-from {{ source('stg_src', 'moscow_weather_daily') }}
+from {{ ref('stg_moscow_weather_daily') }}

@@ -1,16 +1,54 @@
 version: 2
 
+# Таблицы наполняются Airflow DAG-ами (SQL в sql/tasks), не dbt seed.
+# meta: связь с оркестратором и Dataset-триггерами.
+
 sources:
-  - name: datamart_src
+  - name: stg_pipeline
+    description: "Слой STG — нормализация из raw после source DAG."
+    meta:
+      note: "Dataset-и stg/moex, stg/cbr, stg/meteo публикуют соответствующие DAG."
+    schema: stg
+    tables:
+      - name: moex_securities
+        description: "Справочник бумаг (src_moex_ingestion)."
+        meta:
+          dag_id: src_moex_ingestion
+          dataset: "dataset://stg/moex"
+      - name: moex_marketdata
+        description: "Рыночные поля по бумагам."
+        meta:
+          dag_id: src_moex_ingestion
+          dataset: "dataset://stg/moex"
+      - name: cbr_fx_rates
+        description: "Курсы ЦБ (src_cbr_ingestion)."
+        meta:
+          dag_id: src_cbr_ingestion
+          dataset: "dataset://stg/cbr"
+      - name: moscow_weather_daily
+        description: "Погода Москвы (src_meteo_ingestion)."
+        meta:
+          dag_id: src_meteo_ingestion
+          dataset: "dataset://stg/meteo"
+
+  - name: datamart_pipeline
+    description: "Витрины после vault_batch_load → marts_publish_refresh."
+    meta:
+      dag_ids: ["vault_batch_load", "marts_publish_refresh"]
+      dataset: "dataset://datamart/published"
     schema: datamart
     tables:
       - name: dm_security_snapshot
-  - name: stg_src
-    schema: stg
-    tables:
-      - name: cbr_fx_rates
-      - name: moscow_weather_daily
-  - name: analytics_src
+        description: "Снимок по бумагам и валютам для BI."
+      - name: dm_moex_share_overview
+        description: "Промежуточная витрина MOEX из vault."
+
+  - name: analytics_pipeline
+    description: "Слой analytics после weather_regime_dimension_build (SQL DV-320)."
+    meta:
+      dag_id: weather_regime_dimension_build
+      dataset: "dataset://analytics/weather_dimension"
     schema: analytics
     tables:
       - name: dim_moscow_weather_regime_scd2
+        description: "История режимов погоды (медленно меняющееся измерение)."

@@ -2,7 +2,8 @@
   config(
     materialized='view',
     schema='analytics',
-    alias='fct_cbr_fx_rates'
+    alias='fct_cbr_fx_rates',
+    tags=['marts', 'source:cbr', 'dataset:stg_cbr']
   )
 }}
 
@@ -13,4 +14,4 @@ select
     rate,
     currency_name,
     updated_at
-from {{ source('stg_src', 'cbr_fx_rates') }}
+from {{ ref('stg_cbr_fx_rates') }}

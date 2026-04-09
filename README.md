@@ -1,4 +1,4 @@
-# MOEX ETL Workshop (1 hour)
+# ETL Workshop
 
 Учебный проект для студентов-программистов: полный цикл Data Engineering на реальных API по методологии Data Vault 2.0.
 
@@ -40,7 +40,8 @@
 │   ├── marts_publish_refresh.py
 │   ├── weather_regime_dimension_build.py
 │   ├── ods_economic_indicator_fetch.py
-│   └── ods_territory_reference_fetch.py
+│   ├── ods_territory_reference_fetch.py
+│   └── dbt_analytics_build.py
 ├── docs/
 │   ├── architecture.md
 │   ├── data_model.md
@@ -52,11 +53,13 @@
 │   ├── dbt_project.yml
 │   ├── profiles.yml
 │   ├── models/
-│   │   ├── moex/
-│   │   ├── cbr/
-│   │   ├── meteo/
-│   │   ├── marts/
-│   │   └── sources.yml
+│   │   ├── sources.yml
+│   │   ├── staging/
+│   │   │   ├── schema.yml
+│   │   │   └── stg_*.sql
+│   │   └── marts/
+│   │       ├── schema.yml
+│   │       └── fct_*.sql
 │   └── tests/
 ├── debezium/
 │   └── connectors/
@@ -69,7 +72,8 @@
 │   │   ├── 010_init_foundation.sql
 │   │   ├── 020_add_kafka_metadata_to_raw.sql
 │   │   ├── 030_add_open_meteo_source.sql
-│   │   └── 040_open_data_landing.sql
+│   │   ├── 040_open_data_landing.sql
+│   │   └── 050_pg_stat_statements.sql
 │   └── tasks/
 │       ├── README.md
 │       ├── SRC-110_moex_stg_refresh/
@@ -205,7 +209,7 @@ docker compose ps
 - `weather_regime_dimension_build` (после обновления meteo STG)
 - `ods_economic_indicator_fetch` / `ods_territory_reference_fetch` (открытые REST → `raw.open_data_snapshots`, конфиг в `config/`)
 
-После успешного прогона DAG можно отдельно запустить dbt-модели и проверки качества.
+После публикации datamart DAG **`dbt_analytics_build`** автоматически выполняет **`dbt run`** и **`dbt test`** (те же команды, что вручную через `make dbt-run` / контейнер `dbt`). При необходимости dbt можно по-прежнему запускать отдельно для отладки.
 
 Debezium Connect API:
 - URL: [http://localhost:8083](http://localhost:8083)
@@ -408,8 +412,9 @@ curl http://localhost:8083/connectors/postgres-source-demo/status
 - `dags/marts_publish_refresh.py` — `marts_publish_refresh` после загрузки vault
 - `dags/weather_regime_dimension_build.py` — `weather_regime_dimension_build` после `stg.moscow_weather_daily`; витрина `analytics.dim_moscow_weather_regime_scd2` (тип 2 по Кимбаллу — см. SQL в `DV-320_*`)
 - `dags/ods_economic_indicator_fetch.py`, `dags/ods_territory_reference_fetch.py` — публичные REST, параметры в `config/open_data_sources.example.yaml` (копия `open_data_sources.yaml` при необходимости)
+- `dags/dbt_analytics_build.py` — `dbt_analytics_build`: после Dataset datamart — `dbt run` / `dbt test` в каталоге `dbt/`
 
-Все SQL из автоматизации DAG-и читают из подпапок `sql/tasks/*` (например `SRC-110_*`, `DV-210_*`).
+Пайплайны на чистом SQL в репозитории читают файлы из `sql/tasks/*` (например `SRC-110_*`, `DV-210_*`); dbt-модели живут в `dbt/models` и вызываются отдельным DAG.
 Отдельные one-off задачи — те же `sql/tasks/DE-*` и т.п.; DAG-и их не вызывают.
 
 ## Data Vault структура по источникам
@@ -424,6 +429,8 @@ curl http://localhost:8083/connectors/postgres-source-demo/status
 
 ## dbt: что добавлено
 
+- **Оркестрация:** DAG `dbt_analytics_build` после Dataset `datamart/published` вызывает **`dbt run`** и **`dbt test`** из образа Airflow (проект смонтирован в `/opt/airflow/dbt`). Все возможности dbt (Jinja, pre/post-hook, `vars`, тесты) остаются доступны — это те же CLI-команды, не эмуляция SQL. Обойти рантайм dbt без потери семантики нельзя; вариант «только скомпилированный SQL» — отдельный сценарий (`dbt compile` + ручной запуск), без автотестов и хуков dbt.
+- **Слои:** `sources.yml` описывает таблицы STG/datamart/analytics с **meta** (dag_id, Dataset). **`staging/`** — тонкие представления поверх `source()`, **`marts/`** — факты на `ref()` от staging (линейка совпадает с DAG: moex/cbr → vault → datamart → dbt; погода → analytics dim).
 - Модели:
   - `analytics.fct_moex_liquidity` (MOEX)
   - `analytics.fct_moex_movers` (MOEX)
@@ -453,6 +460,26 @@ docker compose --profile dbt run --rm -p 8081:8081 dbt dbt docs serve --host 0.0
 ```
 
 Открыть: `http://localhost:8081`
+
+## Аналитика SQL в PostgreSQL (`pg_stat_statements`)
+
+В `docker-compose.yml` для Postgres включена подгрузка **`pg_stat_statements`**; в bootstrap есть `050_pg_stat_statements.sql` (расширение, роль `etl` с `pg_read_all_stats`, представление **`util.v_statement_log`**).
+
+Через обычный SQL можно смотреть **агрегированную** статистику по запросам: нормализованный текст, пользователь (`role_name`), база, число вызовов, суммарное и среднее время. Это **не** построчный аудит каждого выполнения с исходными литералами — для жёсткого аудита нужны отдельные средства (логи сервера, pgAudit и т.д.).
+
+Примеры:
+
+```sql
+SELECT * FROM util.v_statement_log
+WHERE query_text ILIKE '%vault%'
+ORDER BY total_exec_time_ms DESC
+LIMIT 20;
+
+-- сбросить накопленную статистику (после анализа или тестов)
+SELECT pg_stat_statements_reset();
+```
+
+Уже поднятый том Postgres: добавьте `command` у сервиса `postgres`, перезапустите контейнер и выполните `050_pg_stat_statements.sql` вручную (см. `sql/bootstrap/README.md`).
 
 ## Sphinx автодокументация
 
@@ -642,10 +669,28 @@ ssh -i ~/.ssh/github_deploy_moex_etl deploy@192.144.14.88
 
 ## Дополнительные задания
 
-Опциональные направления для самостоятельной практики поверх воркшопа:
+Короткие идеи для углубления — формулировка на усмотрение преподавателя:
 
-- Добавить инкрементальную загрузку с watermark.
-- Историзировать витрины (SCD2 / snapshots).
-- Сделать quality checks (например, через Great Expectations).
-- Подключить ClickHouse и сравнить производительность с PostgreSQL.
-- Добавить второй источник (например, ЦБ РФ) и объединить в витрине.
+**Инфраструктура**
+
+- **Новый сервис в Docker Compose** — например Jupyter Notebook или ClickHouse: описать сервис в `docker-compose.yml`, тома/порты, как сервис стыкуется с остальным стеком (сеть, credentials).
+- **Инкремент и качество** — watermark при догрузке, SCD2/snapshots для витрин, проверки данных (например Great Expectations или dbt tests пожёстче).
+
+**Airflow**
+
+- **DAG со «сложной» оркестрацией** — ветвление (`@task.branch` или условные зависимости), цепочки Dataset/Asset, вызов другого DAG (`TriggerDagRunOperator` / AIP-коннекты), явные `Sensor` при необходимости.
+- **Плагин или кастомный оператор** — вынести повторяющуюся логику в `airflow/plugins/` или свой `BaseOperator`, подключить в DAG.
+
+**Данные и SQL**
+
+- **Сложная модель / SQL** — витрина или слой в `sql/tasks` или dbt с нетривиальной логикой: оконные функции, иерархии, `LATERAL`, генерация полей из JSON, медленные измерения без «магии» в BI.
+
+- **Второй внешний источник и склейка** — новый API → raw → объединение в витрине с уже существующими данными.
+
+- **ClickHouse рядом с Postgres** — сравнение запросов/скорости на одном сценарии (если подняли ClickHouse в compose).
+
+**Оптимизация**
+
+- **Партиционирование и индексы** — разнести большие факты по дате/ключу (`PARTITION BY`, партиции в Postgres или в ClickHouse), подобрать индексы под типичные фильтры; зафиксировать выигрыш по `EXPLAIN (ANALYZE, BUFFERS)`.
+- **План запроса** — разобрать «тяжёлый» запрос: nested loop vs hash join, sequential scan, переписать SQL или модель так, чтобы план стал дешевле (без слепого «добавь индекс на всё»).
+- **Шардирование / масштабирование чтения** — на уровне идеи: когда имеет смысл шард по бизнес-ключу или read-replica; для воркшопа можно описать схему и ограничения на одном инстансе Postgres.

@@ -1,0 +1,11 @@
+version: 2
+
+models:
+  - name: stg_cbr_fx_rates
+    description: "STG ЦБ — источник `stg_pipeline.cbr_fx_rates` (DAG src_cbr_ingestion, Dataset stg/cbr)."
+  - name: stg_moscow_weather_daily
+    description: "STG погоды — `stg_pipeline.moscow_weather_daily` (src_meteo_ingestion, Dataset stg/meteo)."
+  - name: stg_dm_security_snapshot
+    description: "Витрина datamart — `datamart_pipeline.dm_security_snapshot` (vault_batch_load → marts_publish_refresh, Dataset datamart/published)."
+  - name: stg_dim_moscow_weather_regime
+    description: "Измерение режимов погоды — `analytics_pipeline.dim_moscow_weather_regime_scd2` (weather_regime_dimension_build, Dataset analytics/weather_dimension)."

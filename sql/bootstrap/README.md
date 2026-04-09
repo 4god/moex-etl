@@ -4,5 +4,7 @@
 
 Для «чистого» пересоздания схемы удалите том Postgres и поднимите `docker compose` снова.
 
-Если том уже существует и добавлен новый файл (например `040_*`), выполните его вручную один раз:  
-`docker compose exec -i postgres psql -U etl -d workshop < sql/bootstrap/040_open_data_landing.sql`
+Если том уже существует и добавлен новый файл (например `040_*`, `050_*`), выполните его вручную один раз (под суперпользователем `postgres`, если нужны расширения):  
+`docker compose exec -i postgres psql -U postgres -d workshop < sql/bootstrap/040_open_data_landing.sql`
+
+Для **`050_pg_stat_statements.sql`**: сначала в `docker-compose.yml` у сервиса `postgres` должен быть `command` с `shared_preload_libraries=pg_stat_statements`, затем перезапуск контейнера и выполнение скрипта.
