@@ -17,7 +17,7 @@
 
 Диаграммы находятся в:
 - `docs/architecture.md` (инструменты и поток всего проекта)
-- `docs/services-map.html` (интерактивная карта Docker-сервисов и портов — открыть в браузере)
+- `docs/services-map.html` (интерактивная карта Docker-сервисов и портов: открыть в браузере на **своём ПК**; если граф пустой — в каталоге `docs` запустить `python3 -m http.server 8765` и зайти на `http://localhost:8765/services-map.html`)
 - `docs/data_model.md` (модель Data Vault)
 
 ## Структура проекта

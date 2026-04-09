@@ -87,17 +87,29 @@
     main {
       flex: 1;
       display: grid;
-      grid-template-columns: 1fr 320px;
+      grid-template-columns: 1fr minmax(280px, 360px);
       min-height: 0;
+      /* явная высота, иначе в части браузеров #graph схлопывается в 0px */
+      min-height: 60vh;
     }
     @media (max-width: 900px) {
-      main { grid-template-columns: 1fr; }
+      main { grid-template-columns: 1fr; min-height: auto; }
       aside { max-height: 40vh; }
     }
     #graph {
-      min-height: 480px;
+      width: 100%;
+      height: min(72vh, 900px);
+      min-height: 420px;
       background: #0d1117;
       border-right: 1px solid #30363d;
+    }
+    #graph-error {
+      display: none;
+      padding: 1.5rem;
+      color: #f85149;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      max-width: 52ch;
     }
     aside {
       background: var(--panel);
@@ -126,14 +138,14 @@
       border-top: 1px solid #30363d;
     }
   </style>
-  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
   <header>
     <h1>Интерактивная карта сервисов (Docker Compose)</h1>
     <p>
       Узлы можно перетаскивать, колесо мыши — масштаб. Клик по узлу — детали и ссылки.
-      На VM подставьте свой хост в поле ниже, чтобы открывать UI в браузере.
+      Граф рисуется <strong>сразу при открытии страницы</strong>. Поле ниже только подставляет хост в ссылки (кнопка не «рисует» граф заново).
     </p>
     <div class="toolbar">
       <label>
@@ -151,7 +163,10 @@
     </div>
   </header>
   <main>
-    <div id="graph"></div>
+    <div style="position:relative;min-height:420px;">
+      <div id="graph-error"></div>
+      <div id="graph"></div>
+    </div>
     <aside>
       <h2>Выберите сервис</h2>
       <div id="detail" class="detail">
@@ -167,6 +182,22 @@
 
   <script>
     (function () {
+      var graphEl = document.getElementById("graph");
+      var errEl = document.getElementById("graph-error");
+
+      if (typeof vis === "undefined") {
+        errEl.style.display = "block";
+        graphEl.style.minHeight = "auto";
+        graphEl.style.height = "auto";
+        errEl.innerHTML =
+          "<strong>Не загрузилась библиотека графа (vis-network).</strong><br/><br/>" +
+          "Часто так бывает при открытии файла через <code>file://</code> и блокировке CDN.<br/><br/>" +
+          "Сделайте так: в каталоге <code>docs</code> выполните <code>python3 -m http.server 8765</code> " +
+          "и откройте в браузере <code>http://localhost:8765/services-map.html</code> " +
+          "(или с другого ПК: <code>http://IP_VM:8765/services-map.html</code>, порт открыть в фаерволе).";
+        return;
+      }
+
       const services = [
         {
           id: "postgres",
@@ -329,7 +360,7 @@
         },
       ]);
 
-      const container = document.getElementById("graph");
+      const container = graphEl;
       const data = { nodes, edges };
       const options = {
         physics: {
@@ -340,7 +371,21 @@
         interaction: { hover: true, multiselect: false },
         edges: { smooth: { type: "cubicBezier" } },
       };
-      const network = new vis.Network(container, data, options);
+      let network;
+      try {
+        network = new vis.Network(container, data, options);
+      } catch (e) {
+        errEl.style.display = "block";
+        errEl.textContent = "Ошибка отрисовки графа: " + (e && e.message ? e.message : String(e));
+        return;
+      }
+
+      var fitDone = false;
+      network.on("stabilizationIterationsDone", function () {
+        if (fitDone) return;
+        fitDone = true;
+        network.fit({ animation: false });
+      });
 
       const detailEl = document.getElementById("detail");
       const baseInput = document.getElementById("baseHost");
@@ -381,14 +426,48 @@
         if (p.nodes.length) showDetail(p.nodes[0]);
       });
 
-      document.getElementById("applyHost").addEventListener("click", function () {
-        const sel = network.getSelectedNodes()[0];
-        if (sel) showDetail(sel);
-        else detailEl.innerHTML =
-          '<span class="detail">Базовый хост: <code>' +
+      function quickLinksHtml() {
+        const rows = services
+          .filter(function (s) {
+            return s.port != null;
+          })
+          .map(function (s) {
+            var u = link(s.port);
+            return (
+              "<li><strong>" +
+              s.label.replace(/\n/g, " ") +
+              '</strong> — <a href="' +
+              u +
+              '" target="_blank" rel="noopener">' +
+              u +
+              "</a></li>"
+            );
+          })
+          .join("");
+        return (
+          "<p style='margin:0 0 0.5rem 0'><strong>Быстрые ссылки</strong> (хост <code>" +
           host() +
-          "</code> — кликните сервис, чтобы обновить ссылки.</span>";
+          "</code>):</p><ul style='margin:0;padding-left:1.1rem'>" +
+          rows +
+          "</ul>"
+        );
+      }
+
+      function showFullLinksPanel() {
+        detailEl.innerHTML =
+          quickLinksHtml() +
+          "<p class='detail' style='margin-top:0.75rem'>Кликните узел на графе слева для подробностей по одному сервису. " +
+          "Кнопка «Применить ссылки» снова показывает этот полный список.</p>";
+      }
+
+      document.getElementById("applyHost").addEventListener("click", function () {
+        try {
+          network.unselectAll();
+        } catch (e) {}
+        showFullLinksPanel();
       });
+
+      showFullLinksPanel();
     })();
   </script>
 </body>
