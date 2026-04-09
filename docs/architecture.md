@@ -6,34 +6,67 @@
 
 ## 1) Диаграмма всего проекта (инструменты и взаимодействие)
 
-```mermaid
-flowchart LR
-    A[MOEX ISS API] --> C[Airflow Source DAGs]
-    B[CBR Daily API] --> C
-    H[Open-Meteo API] --> C
-    X[Other Public APIs] --> C
-    J[Other DB sources<br/>CDC] --> DBC[Debezium Connect]
-    DBC --> K
-    C --> K[(Kafka topics<br/>raw.moex.payloads<br/>raw.cbr.payloads<br/>raw.open_meteo.payloads<br/>raw.<new_source>.payloads<br/>+ CDC topics)]
-    C2[Airflow DAGs<br/>datasets + open data] --> D
-    K --> D[(Postgres raw/stg/vault/datamart)]
-    E[dbt container<br/>run + test] --> D
-    D --> F[Metabase]
-    F --> G[Dashboard]
-```
-
-## 2) Поток данных по слоям
+**Смысл:** **Airflow** оркестрирует загрузку и вызывает **plain SQL** (`sql/tasks`) для слоёв до **`datamart`**. **dbt** — отдельный шаг: читает уже лежащие в Postgres **`stg`/`datamart`**, пишет в **`analytics`**. **Metabase** смотрит на **`datamart`** и **`analytics`**.
 
 ```mermaid
 flowchart TB
-    API["MOEX + CBR + Open-Meteo + Other APIs"] --> KAFKA["Kafka topics<br/>raw ingestion bus"]
-    CDC["Other sources via Debezium CDC"] --> KAFKA
-    KAFKA --> RAW["raw<br/>JSON payloads by source"]
-    RAW --> STG["stg<br/>Нормализация в табличный вид"]
-    STG --> VAULT["vault<br/>Hub/Link/Satellite"]
-    VAULT --> DM["datamart<br/>Бизнес-витрины"]
-    STG --> SCD["analytics<br/>SCD Type 2 dimension"]
-    DM --> BI["Metabase / BI"]
+    subgraph src[Источники]
+        A[MOEX / CBR / Open-Meteo / др. API]
+        J[OLTP и др. БД]
+    end
+    subgraph ingest[Загрузка]
+        C[Airflow: source DAGs, ODS, CDC-обвязка]
+        DBC[Debezium Connect]
+    end
+    K[(Kafka topics)]
+    subgraph pg[PostgreSQL workshop]
+        R[raw]
+        STG[stg]
+        V[vault]
+        DM[datamart]
+        AN[analytics]
+    end
+    DBT[dbt run / test<br/>DAG dbt_analytics_build]
+    MB[Metabase]
+
+    src --> ingest
+    J --> DBC --> K
+    C --> K
+    C --> R
+    C --> STG
+    C --> V
+    C --> DM
+    K --> R
+    STG --> DBT
+    DM --> DBT
+    DBT --> AN
+    DM --> MB
+    AN --> MB
+```
+
+Пояснение к стрелкам **Airflow → слои Postgres:** на схеме показано кратко; фактически большая часть шагов **`raw` → `stg` → `vault` → `datamart`** выполняется SQL-файлами из **`sql/tasks`**, вызываемыми из DAG (см. также раздел «Оркестрация» ниже).
+
+## 2) Поток данных по слоям (где plain SQL, где dbt)
+
+| Слой в Postgres | Как появляется |
+|-----------------|----------------|
+| `raw` … `datamart` | **Airflow** + **`sql/tasks`** (и bootstrap), без dbt |
+| `analytics` | **dbt** (`dbt run`), после готовности витрин в `datamart` |
+
+```mermaid
+flowchart TB
+    API["API + open data"] --> KAFKA["Kafka"]
+    CDC["CDC Debezium"] --> KAFKA
+    KAFKA --> RAW["raw"]
+    AF["Airflow DAG + sql/tasks"] --> RAW
+    AF --> STG["stg"]
+    AF --> VAULT["vault"]
+    AF --> DM["datamart<br/>витрины DV / SQL"]
+    STG --> DBT["dbt: staging/marts модели"]
+    DM --> DBT
+    DBT --> AN["analytics<br/>факты/вью для BI"]
+    DM --> BI["Metabase"]
+    AN --> BI
 ```
 
 ## 3) Оркестрация
@@ -51,5 +84,7 @@ flowchart LR
     D4 --> L2["marts_publish_refresh"]
     D3 --> L3["weather_regime_dimension_build"]
 ```
+
+После публикации витрин (Dataset **`datamart/published`**) в ход идёт DAG **`dbt_analytics_build`**: **`dbt run`** / **`dbt test`** → схема **`analytics`**.
 
 Отдельно по расписанию: DAG `ods_*` публикуют ответы публичных REST в Kafka (`raw.ods.*`) и consumer пишет в `raw.ods_economic_payloads`, `raw.ods_territory_payloads` и при необходимости `raw.ods_public_api_payloads` (см. `config/open_data_sources.example.yaml`).

@@ -2,7 +2,11 @@
 
 Учебный проект для студентов-программистов: полный цикл Data Engineering на реальных API по методологии **Data Vault 2.0**. Воспроизводится через Docker.
 
-**Стек:** MOEX ISS + CBR + Open-Meteo → **Kafka** → **PostgreSQL** (raw → stg → vault → datamart) → **dbt** / **Metabase**; оркестрация **Airflow**; CDC — **Debezium** (Kafka Connect).
+**Поток данных:** внешние API и CDC → **Kafka** → в **PostgreSQL** слои **`raw` → `stg` → `vault` → `datamart`** (строятся **Airflow** и SQL из **`sql/tasks`**). После публикации витрин DAG **`dbt_analytics_build`** запускает **dbt**, который создаёт объекты в схеме **`analytics`** (модели в каталоге **`dbt/`**). **Metabase** читает и **`datamart`**, и **`analytics`**.
+
+**Инструменты:** оркестрация и ingestion — **Airflow**; трансформации «до витрин» — **plain SQL** в **`sql/tasks`**; слой под отчёты и тесты dbt — **`dbt run` / `dbt test`**; BI — **Metabase**; CDC — **Debezium** (Kafka Connect).
+
+Схемы и пояснения: [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
@@ -413,8 +417,9 @@ SQL-пайплайны в `sql/tasks/*` (SRC-*, DV-*); one-off в `DE-*` DAG н�
 
 ## 10. dbt
 
+- **Роль в стеке:** dbt **не** грузит данные из API/Kafka — только выполняет SQL в Postgres. Источники для моделей — таблицы в **`stg`** и **`datamart`**; результат материализуется в схеме **`analytics`** (см. `dbt/profiles.yml`, `schema:`).
 - **Оркестрация:** DAG `dbt_analytics_build` после Dataset datamart — `dbt run` / `dbt test` из образа Airflow (`/opt/airflow/dbt`).
-- **Слои:** `sources.yml` с meta; `staging/` → `marts/` через `ref()`.
+- **Папки проекта:** в репозитории `models/staging/` и `models/marts/` — это **логика dbt**, не схемы Postgres; целевая схема по умолчанию — **`analytics`**.
 - **Модели:** `fct_moex_liquidity`, `fct_moex_movers`, `fct_cbr_fx_rates`, `fct_moscow_weather_daily`, `fct_moex_weather_snapshot` и др.
 - **Качество:** `schema.yml`, custom tests в `dbt/tests/`.
 
