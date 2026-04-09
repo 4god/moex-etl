@@ -155,11 +155,14 @@ services:
 
   # Повторно применяет все sql/bootstrap/*.sql к живому Postgres (идемпотентно).
   # Так новые скрипты подхватываются без ручного psql; initdb.d по-прежнему отрабатывает при первом создании тома.
+  # network_mode: service:postgres — общий netns с БД, подключение к 127.0.0.1 (без резолва имени «postgres» через Docker DNS).
+  # На части хостов/сетей внутри отдельного контейнера бывает «Temporary failure in name resolution» для сервисных имён.
   bootstrap-apply:
     image: postgres:16
     container_name: workshop-bootstrap-apply
+    network_mode: "service:postgres"
     environment:
-      PGHOST: postgres
+      PGHOST: "127.0.0.1"
       PGUSER: postgres
       PGPASSWORD: postgres
     depends_on:

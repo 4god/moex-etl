@@ -16,7 +16,7 @@ usage() {
   up                 docker compose up -d --build (образы Airflow и др.)
   up-fast            docker compose up -d без --build (правки только в dags/sql/config на томах)
   reload-airflow     restart webserver + scheduler + triggerer
-  down               docker compose down
+  down               docker compose --profile bi --profile dbt down --remove-orphans
   reset-db           ./scripts/reset_stack.sh
   apply-bootstrap    повторный sql/bootstrap через контейнер bootstrap-apply
   provision-students учётки Airflow + Metabase (Metabase — если в профиле bi)
@@ -43,7 +43,7 @@ case "${1:-}" in
     docker compose restart airflow-webserver airflow-scheduler airflow-triggerer
     ;;
   down)
-    docker compose down
+    docker compose --profile bi --profile dbt down --remove-orphans
     ;;
   reset-db)
     ./scripts/reset_stack.sh

@@ -514,6 +514,8 @@ docker compose logs -f airflow-scheduler airflow-triggerer
 docker compose --profile dbt run --rm dbt dbt --version
 ```
 
+Если при `make up` / `docker compose up` появляется **`failed to set up container networking: network … not found`** (часто у Metabase после prune или частичного перезапуска): полный останов проекта и подъём заново — `make up-clean`, или вручную `docker compose --profile bi --profile dbt down --remove-orphans`, затем снова `make up`.
+
 ---
 
 ## 14. Публикация в GitHub

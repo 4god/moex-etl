@@ -21,10 +21,9 @@ if [[ ! -d /bootstrap ]]; then
   exit 1
 fi
 
-# Ожидание встроенного DNS Docker и самого Postgres. Только pg_isready недостаточно: при «Temporary failure in name
-# resolution» он так же падает, зато отдельный ping-psql после «успешного» pg_isready давал бы гонку.
-# Повторяем реальный SELECT 1 — каждая попытка снова резолвит имя сервиса (обычно postgres).
-echo "==> Waiting for Postgres at ${PGHOST}:5432 (DNS + TCP)..."
+# Ожидание доступности Postgres (TCP). В docker-compose для bootstrap-apply задан PGHOST=127.0.0.1 (netns с БД),
+# без резолва имени «postgres». Иначе — повторяем SELECT 1, пока не поднимется сервер или DNS.
+echo "==> Waiting for Postgres at ${PGHOST}:5432 ..."
 for _i in $(seq 1 120); do
   if psql -h "$PGHOST" -U "$PGUSER" -d postgres -c "SELECT 1" >/dev/null 2>&1; then
     echo "==> Postgres reachable (attempt ${_i})"
@@ -32,8 +31,11 @@ for _i in $(seq 1 120); do
   fi
   if [[ "$_i" -eq 120 ]]; then
     echo "ERROR: cannot connect to ${PGHOST}:5432 after 120s." >&2
-    echo "  Частая причина: имя хоста не резолвится внутри контейнера (Docker DNS ещё не готов или другая сеть)." >&2
-    echo "  Убедитесь: docker compose up из корня проекта; сервисы в одном project/сети; не network_mode: host у одного из сервисов." >&2
+    if [[ "${PGHOST}" =~ ^[0-9.]+$ ]]; then
+      echo "  PGHOST — IP (ожидается при network_mode: service:postgres): проверьте, что контейнер postgres healthy и слушает 5432." >&2
+    else
+      echo "  Частая причина: имя хоста не резолвится (Docker DNS / сеть). См. docker-compose: bootstrap-apply и postgres." >&2
+    fi
     if command -v getent >/dev/null 2>&1; then
       echo "  getent hosts ${PGHOST}:" >&2
       getent hosts "${PGHOST}" 2>&1 || true
