@@ -1,5 +1,8 @@
 \connect workshop;
 
+-- digest(bytea, text) — из pgcrypto (в образе postgres есть contrib).
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- Идемпотентность raw при повторных прогонах: одинаковый (source, endpoint) не вставляется повторно (см. consume_raw_to_postgres).
 -- Сначала убираем уже существующие полные дубли (оставляем строку с минимальным id).
 
