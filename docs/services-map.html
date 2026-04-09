@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- без этого браузер запрашивает /favicon.ico и пишет 404 в лог python http.server -->
+  <link rel="icon" href="data:," />
   <title>Карта сервисов — ETL Workshop</title>
   <style>
     :root {
@@ -145,12 +147,12 @@
     <h1>Интерактивная карта сервисов (Docker Compose)</h1>
     <p>
       Узлы можно перетаскивать, колесо мыши — масштаб. Клик по узлу — детали и ссылки.
-      Граф рисуется <strong>сразу при открытии страницы</strong>. Поле ниже только подставляет хост в ссылки (кнопка не «рисует» граф заново).
+      Граф рисуется <strong>сразу при открытии страницы</strong>. Если открыли карту как <code>http://IP:8765/...</code>, хост в ссылках берётся <strong>с этого IP автоматически</strong>; при открытии файла с диска по умолчанию — <code>localhost</code>. Поле ниже можно поправить вручную.
     </p>
     <div class="toolbar">
       <label>
-        Базовый URL (хост):
-        <input type="text" id="baseHost" placeholder="localhost или IP VM" value="localhost" />
+        Хост для ссылок на сервисы (Airflow, Kafka UI, …):
+        <input type="text" id="baseHost" placeholder="подставится из адреса страницы" />
       </label>
       <button type="button" id="applyHost">Применить ссылки</button>
       <div class="legend">
@@ -389,6 +391,19 @@
 
       const detailEl = document.getElementById("detail");
       const baseInput = document.getElementById("baseHost");
+
+      (function syncHostFromPageUrl() {
+        try {
+          var h = window.location.hostname;
+          if (h && h.length > 0) {
+            baseInput.value = h;
+          } else {
+            baseInput.value = "localhost";
+          }
+        } catch (e) {
+          baseInput.value = "localhost";
+        }
+      })();
 
       function host() {
         let h = (baseInput.value || "localhost").trim();
