@@ -7,6 +7,7 @@
 # На VM один раз: git clone, ветка workshop/moex-etl, remote origin на этот репозиторий.
 # Рекомендуется отдельный Linux-пользователь + Deploy Key (read-only) или SSH-ключ только для деплоя.
 # После `docker compose up` bootstrap SQL применяет сервис bootstrap-apply — отдельный ручной psql на VM не нужен.
+# На хост ставятся make и postgresql-client (см. scripts/vm_install_host_tools.sh); для deploy-пользователя нужен sudo без пароля для apt или запуск workflow от root (не рекомендуется).
 
 name: Deploy to workshop VM
 
@@ -16,8 +17,9 @@ on:
       - workshop/moex-etl
   workflow_dispatch:
 
+# Повторный push в ветку деплоя отменяет предыдущий прогон — на VM уедет только последний коммит.
 concurrency:
-  group: deploy-workshop-vm
+  group: deploy-workshop-vm-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -37,6 +39,7 @@ jobs:
             git fetch origin
             git checkout workshop/moex-etl
             git pull --ff-only origin workshop/moex-etl
+            bash scripts/vm_install_host_tools.sh
             docker compose build
             docker compose --profile bi up -d
             docker compose exec -T airflow-scheduler airflow dags reserialize || true

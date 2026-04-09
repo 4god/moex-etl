@@ -107,6 +107,10 @@ services:
       kafka:
         condition: service_healthy
     environment:
+      # Один локальный пользователь (kafbat не поддерживает 30 логинов без OAuth/Keycloak).
+      AUTH_TYPE: LOGIN_FORM
+      SPRING_SECURITY_USER_NAME: workshop
+      SPRING_SECURITY_USER_PASSWORD: workshop_kafka_ui
       KAFKA_CLUSTERS_0_NAME: workshop
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
@@ -178,6 +182,18 @@ services:
       bootstrap-apply:
         condition: service_completed_successfully
 
+  # 30 учёток Airflow. Идемпотентно.
+  workshop-provision-airflow:
+    <<: *airflow-common
+    container_name: workshop-provision-airflow
+    user: "0:0"
+    entrypoint: ["/bin/bash", "/opt/airflow/scripts/provision_airflow_students.sh"]
+    volumes:
+      - ./scripts/provision_airflow_students.sh:/opt/airflow/scripts/provision_airflow_students.sh:ro
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
   airflow-webserver:
     <<: *airflow-common
     container_name: workshop-airflow-webserver
@@ -190,6 +206,8 @@ services:
     depends_on:
       airflow-init:
         condition: service_completed_successfully
+      workshop-provision-airflow:
+        condition: service_completed_successfully
 
   airflow-scheduler:
     <<: *airflow-common
@@ -200,6 +218,8 @@ services:
     user: "${AIRFLOW_UID:-50000}:0"
     depends_on:
       airflow-init:
+        condition: service_completed_successfully
+      workshop-provision-airflow:
         condition: service_completed_successfully
 
   # Нужен для deferrable-операторов (HttpOperator deferrable, сенсоры async и т.д.).
@@ -212,6 +232,8 @@ services:
     user: "${AIRFLOW_UID:-50000}:0"
     depends_on:
       airflow-init:
+        condition: service_completed_successfully
+      workshop-provision-airflow:
         condition: service_completed_successfully
 
   metabase:
@@ -234,6 +256,28 @@ services:
       airflow-scheduler:
         condition: service_started
       airflow-triggerer:
+        condition: service_started
+
+  # Metabase: первичный setup, админ, 30 пользователей и подключений к PG (после healthy JVM).
+  workshop-provision-metabase:
+    image: python:3.11-slim
+    container_name: workshop-provision-metabase
+    profiles: ["bi"]
+    working_dir: /app
+    environment:
+      METABASE_URL: http://metabase:3000
+      WORKSHOP_STUDENT_COUNT: "30"
+      METABASE_ADMIN_EMAIL: workshop_admin@workshop.local
+      METABASE_ADMIN_PASSWORD: workshop_admin
+      METABASE_SITE_NAME: Workshop
+      WORKSHOP_PG_HOST: postgres
+      WORKSHOP_PG_PORT: "5432"
+      WORKSHOP_PG_DATABASE: workshop
+    volumes:
+      - ./scripts/provision_metabase.py:/app/provision_metabase.py:ro
+    entrypoint: ["python3", "/app/provision_metabase.py"]
+    depends_on:
+      metabase:
         condition: service_started
 
   dbt:

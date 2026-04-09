@@ -4,6 +4,7 @@ FROM apache/airflow:2.10.4-python3.11
 ARG AIRFLOW_CONSTRAINTS_URL="https://raw.githubusercontent.com/apache/airflow/constraints-2.10.4/constraints-3.11.txt"
 
 USER airflow
+COPY airflow_local_settings.py /opt/airflow/airflow_local_settings.py
 COPY requirements.txt /requirements.txt
 RUN pip install --upgrade pip setuptools wheel \
     && pip install --no-cache-dir -r /requirements.txt -c "${AIRFLOW_CONSTRAINTS_URL}" \

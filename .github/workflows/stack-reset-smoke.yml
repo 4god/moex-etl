@@ -17,8 +17,10 @@ on:
       - "scripts/**"
       - "airflow/**"
 
+# Новый запуск этого workflow по той же ветке (push/PR) отменяет ещё идущий — второй коммит не ждёт первый.
+# См. https://docs.github.com/en/actions/using-jobs/using-concurrency
 concurrency:
-  group: stack-smoke-${{ github.ref }}
+  group: stack-reset-smoke-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -65,6 +67,7 @@ jobs:
             wait_kafka_postgres
             local svc
             for svc in kafka-connect kafka-ui bootstrap-apply airflow-init \
+                       workshop-provision-airflow \
                        airflow-webserver airflow-scheduler airflow-triggerer dbt-docs; do
               echo "=== docker compose up -d --build $svc ==="
               docker compose up -d --build --remove-orphans "$svc"

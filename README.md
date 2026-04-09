@@ -277,19 +277,13 @@ docker compose --profile bi up -d --build
 Metabase стартует после Airflow (см. `depends_on` в `docker-compose.yml`).
 
 - URL: [http://localhost:8085](http://localhost:8085) (в контейнере порт 3000).
-- Подключение к БД: Host `postgres`, Port `5432`, DB `workshop`, User `etl`, Password `etl`.
+- Учётки студентов и подключения к БД создаются автоматически (см. **§16**). Для вопросов используйте своё подключение **«Workshop PG (student XX)»**, не общий `etl`.
 - Таблица для примеров: `datamart.dm_security_snapshot`.
 
 <details>
-<summary>Роли и группы для студентов</summary>
+<summary>Ручная настройка групп и прав (опционально)</summary>
 
-Metabase: **email = логин**. Рекомендуемые группы: `Instructors`, `Students`, (опц.) `Viewers`.
-
-1. **Admin → People → Groups** — создать группы.
-2. **Invite people** — выдать группы.
-3. **Permissions → Data** — `Instructors`: Curate; `Students`: View data; `Viewers`: ограниченно.
-4. Ограничить схемы: студентам часто только `datamart` (без `raw`/`stg`).
-5. **Permissions → Collections** — песочница для студентов, общие дашборды для преподавателей.
+Если нужны отдельные коллекции или ограничение видимости БД между студентами в OSS: **Admin → People / Permissions**. По умолчанию у каждого студента своё подключение PostgreSQL с ролью `workshop_student_XX` — запросы выполняются с ограничениями PG.
 
 </details>
 
@@ -445,13 +439,20 @@ HTML: `docs/sphinx/_build/html/index.html`.
 
 ## 13. Команды Makefile и Docker
 
-| Задача | Команда |
-|--------|---------|
-| Подъём стека с BI | `make up` (= `docker compose --profile bi up -d --build`) |
-| Остановка | `docker compose down` |
-| Сброс томов и перезапуск | `make reset-db` |
-| Повторный bootstrap SQL | `make apply-bootstrap` |
-| Статика карты сервисов | `make serve-docs` (порт 8765) |
+**Установка `make` и `psql` на хост VM** (один раз): `sudo ./scripts/vm_install_host_tools.sh` — то же выполняет [деплой в GitHub Actions](.github/workflows/deploy-vm.yml) после `git pull` (нужен sudo без пароля у пользователя SSH).
+
+**На VM без `make`** (после установки пакетов) можно пользоваться и Makefile, и скриптом из корня репозитория (права на выполнение: `chmod +x scripts/workshop.sh`):
+
+| Задача | Через make | Без make (bash) |
+|--------|------------|-----------------|
+| Подъём стека с BI | `make up` | `./scripts/workshop.sh up` |
+| Остановка | `make down` | `./scripts/workshop.sh down` |
+| Сброс томов и перезапуск | `make reset-db` | `./scripts/workshop.sh reset-db` |
+| Повторный bootstrap SQL | `make apply-bootstrap` | `./scripts/workshop.sh apply-bootstrap` |
+| Учётки студентов (Airflow + Metabase) | `make provision-students` | `./scripts/workshop.sh provision-students` |
+| Статика карты сервисов (`docs/`, порт 8765) | `make serve-docs` | `cd docs && python3 -m http.server 8765 --bind 0.0.0.0` |
+
+Минимальный стек **без Metabase**: `STACK_PROFILES= ./scripts/workshop.sh up` (как `make up STACK_PROFILES=`).
 
 **Bootstrap:** при каждом `docker compose up` сервис **`bootstrap-apply`** прогоняет `sql/bootstrap/*.sql` (новые файлы подхватываются без ручного `psql`).
 
@@ -478,8 +479,10 @@ git push -u origin workshop/moex-etl
 
 ## 15. CI: деплой на VM
 
-- Workflow: [`.github/workflows/deploy-vm.yml`](.github/workflows/deploy-vm.yml) — push в `workshop/moex-etl` → SSH на VPS → `git pull` → `docker compose up` (**bootstrap-apply** выполняется сам).
+- Workflow: [`.github/workflows/deploy-vm.yml`](.github/workflows/deploy-vm.yml) — push в `workshop/moex-etl` → SSH на VPS → `git pull` → **`scripts/vm_install_host_tools.sh`** (`apt-get install` **make** и **postgresql-client** / аналог на dnf, apk) → `docker compose up` (**bootstrap-apply** выполняется сам). Пользователь SSH на VM должен иметь **sudo без пароля** для `apt-get`/`dnf`/`apk` (или задайте в `/etc/sudoers.d/` для `deploy`).
 - Smoke: [`.github/workflows/stack-reset-smoke.yml`](.github/workflows/stack-reset-smoke.yml) — Actions → **Stack reset smoke**.
+
+У обоих включён **`concurrency` + `cancel-in-progress: true`**: новый запуск **этого же** workflow по **той же ветке** отменяет ещё идущий (второй push не ждёт завершения первого). Другой workflow из этого не останавливается; разные ветки — разные группы.
 
 **Secrets / Variables в GitHub Actions:** `VM_HOST`, `VM_USER`, `VM_SSH_KEY`, Variable `VM_DEPLOY_PATH` (абсолютный путь к клону на сервере).
 
@@ -509,6 +512,15 @@ sudo chmod 600 /home/deploy/.ssh/authorized_keys
 
 Выдать `deploy` права на каталог клона, настроить `git` и ветку `workshop/moex-etl`. Для приватного репо — Deploy Key или доступ к `git pull`.
 
+**Утилиты на хосте (`make`, `psql`):** при деплое из Actions выполняется [`scripts/vm_install_host_tools.sh`](scripts/vm_install_host_tools.sh). Для пользователя `deploy` добавьте sudo без пароля, например:
+
+```bash
+echo 'deploy ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/dnf, /sbin/apk' | sudo tee /etc/sudoers.d/deploy-workshop
+sudo chmod 440 /etc/sudoers.d/deploy-workshop
+```
+
+(Подставьте фактические пути к менеджеру пакетов на вашей ОС.) Вручную на уже развёрнутой VM: из корня клона `sudo ./scripts/vm_install_host_tools.sh`.
+
 `VM_DEPLOY_PATH` = абсолютный путь к репозиторию (где лежит `docker-compose.yml`), без `/` в конце.
 
 **3. Проверка с ПК:**
@@ -525,7 +537,43 @@ ssh -i ~/.ssh/github_deploy_moex_etl deploy@<IP_VM>
 
 ---
 
-## 16. Дополнительные задания
+## 16. Учётки студентов (все сервисы)
+
+Номер студента **01–30** задаёт суффикс: логины вида `workshop_student_01`, пароли **`workshop_stu01`** … **`workshop_stu30`** (две цифры в пароле). Учётки **создаются автоматически** при `docker compose up`: PostgreSQL — из bootstrap, Airflow — сервис `workshop-provision-airflow`, Metabase — `workshop-provision-metabase` (при `--profile bi`). Повторная догонка: `make provision-students` или **`./scripts/workshop.sh provision-students`** (удобно на VM без `make`).
+
+### Смена пароля после первого входа
+
+У **локальных** учёток Airflow (FAB) и Metabase **нет** встроенного режима «обязательно сменить пароль при первом входе», как в корпоративном SSO. Рекомендуемая практика:
+
+| Сервис | Что сделать |
+|--------|-------------|
+| **Airflow** | После входа на главной странице показывается **жёлтое предупреждение**; пароль меняют: **меню пользователя (справа вверху) → Your Profile / User** → смена пароля (или выход и **Forgot password**, если включите сброс по почте в настройках). |
+| **Metabase** | **Шестерёнка → Account settings → Password** (или аналог в вашей версии). |
+| **PostgreSQL** | В своей сессии: `ALTER ROLE текущая_роль PASSWORD 'новый_секрет';` либо `\password` в `psql`. |
+
+**Kafka UI** — один общий логин `workshop` / `workshop_kafka_ui`; при необходимости смените пароль в `docker-compose.yml` (переменные `SPRING_SECURITY_USER_*`) и перезапустите контейнер.
+
+**Правила воркшопа:** можно создавать топики Kafka, свои DAG в [`dags/workshop_students/`](dags/workshop_students/), объекты в своей схеме `stu_XX` и вопросы в Metabase. **Не удаляйте** чужие учётки, не останавливайте чужие DAG без договорённости, не трогайте коннекторы Debezium/Kafka Connect и системные Connections в Airflow (`DWH`, `SOURCEDB`), не выполняйте `docker compose down -v` и не правьте тома инфраструктуры — это ломает стенд для всех.
+
+| Сервис | URL (локально) | Логин | Пароль |
+|--------|----------------|-------|--------|
+| **Airflow** | [http://localhost:8080](http://localhost:8080) | `workshop_student_XX` | `workshop_stuXX` |
+| **Metabase** | [http://localhost:8085](http://localhost:8085) | `workshop_student_XX@workshop.local` | `workshop_stuXX` |
+| **PostgreSQL** | `localhost:5432`, БД `workshop` | `workshop_student_XX` | `workshop_stuXX` |
+| **PostgreSQL** (OLTP CDC) | `localhost:5432`, БД `sourcedb` | `workshop_student_XX` | `workshop_stuXX` |
+| **Kafka** (брокер) | `localhost:9092` | нет (PLAINTEXT) | нет |
+| **Kafka UI** | [http://localhost:8090](http://localhost:8090) | `workshop` | `workshop_kafka_ui` |
+| **Kafka Connect** | [http://localhost:8083](http://localhost:8083) | нет | нет |
+
+**Администраторы (преподаватель):** Airflow `admin` / `admin`; Metabase `workshop_admin@workshop.local` / `workshop_admin`; PostgreSQL суперпользователь `postgres` / `postgres`.
+
+**PostgreSQL (права студента):** чтение слоёв `raw`, `stg`, `vault`, `datamart`, `analytics` и `sourcedb` (только `SELECT`); полный контроль в своей схеме `stu_XX`. См. [`sql/bootstrap/080_workshop_student_sandboxes.sql`](sql/bootstrap/080_workshop_student_sandboxes.sql). Детали Metabase: [`docs/metabase_student_setup.md`](docs/metabase_student_setup.md).
+
+На удалённой машине подставьте вместо `localhost` **IP или DNS** хоста; порты должны быть открыты файрволом.
+
+---
+
+## 17. Дополнительные задания
 
 <details>
 <summary>Идеи для углубления</summary>

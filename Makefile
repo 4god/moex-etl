@@ -1,4 +1,4 @@
-.PHONY: docs-sphinx docs-lineage dbt-run dbt-test up down reset-db apply-bootstrap serve-docs
+.PHONY: docs-sphinx docs-lineage dbt-run dbt-test up down reset-db apply-bootstrap provision-students serve-docs
 
 # Профиль BI (Metabase): по умолчанию как в README. Для минимального стека: make up STACK_PROFILES=
 STACK_PROFILES ?= --profile bi
@@ -16,6 +16,10 @@ reset-db:
 # Повторно прогнать sql/bootstrap к уже запущенному Postgres (обычно не нужно: то же делает сервис bootstrap-apply при каждом up)
 apply-bootstrap:
 	docker compose run --rm bootstrap-apply
+
+# Повторно создать учётки Airflow и Metabase (идемпотентно; Metabase — с --profile bi).
+provision-students:
+	./scripts/workshop.sh provision-students
 
 # Статика docs/services-map.html (порт 8765; слушает 0.0.0.0). Другой порт: cd docs && python3 -m http.server 9000 --bind 0.0.0.0
 serve-docs:
