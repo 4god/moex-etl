@@ -3,13 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import TYPE_CHECKING
 
 from airflow.datasets import Dataset
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-
-if TYPE_CHECKING:
-    from kafka import KafkaConsumer, KafkaProducer
 
 _LOG = logging.getLogger(__name__)
 

@@ -30,4 +30,4 @@ GRANT SELECT ON util.v_statement_log TO etl;
 
 COMMENT ON VIEW util.v_statement_log IS
     'Обёртка над pg_stat_statements: кто (role_name), куда (database_name), какой запрос (query_text), сколько раз и сколько времени. '
-    'Полный построчный аудит каждого выполнения не ведётся — см. документацию PostgreSQL.';
+    'Агрегаты по нормализованному тексту, не каждый вызов. Построчный журнал SQL — в логах сервера (log_statement, см. docker-compose и README).';

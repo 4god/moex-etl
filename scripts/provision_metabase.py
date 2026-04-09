@@ -200,7 +200,8 @@ def ensure_databases(session_id: str) -> None:
                 "user": user,
                 "password": pwd,
                 "ssl": False,
-                "additional-options": "",
+                # JDBC ApplicationName → Postgres log_line_prefix app=… (кто дернул UI, роль всё равно workshop_student_XX).
+                "additional-options": f"ApplicationName=metabase_student_{sid}",
                 "let-user-control-scheduling": False,
             },
         }

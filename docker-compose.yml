@@ -5,19 +5,20 @@ x-airflow-common:
     dockerfile: Dockerfile
   environment:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow?application_name=airflow_metadata
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
     # Иначе в UI бывает Invalid URL 'http://:8793/log/...' (нет hostname для served logs)
     AIRFLOW__WEBSERVER__BASE_URL: http://localhost:8080
     # --- Connections (Admin → Connections; conn id = суффикс после AIRFLOW_CONN_)
-    AIRFLOW_CONN_DWH: postgresql://etl:etl@postgres:5432/workshop
-    AIRFLOW_CONN_SOURCEDB: postgresql://sourcedb_loader:sourcedb_loader@postgres:5432/sourcedb
+    # application_name попадает в log_line_prefix Postgres — по логам видно, кто дернул БД (Airflow vs Metabase и т.д.).
+    AIRFLOW_CONN_DWH: postgresql://etl:etl@postgres:5432/workshop?application_name=airflow_dwh
+    AIRFLOW_CONN_SOURCEDB: postgresql://sourcedb_loader:sourcedb_loader@postgres:5432/sourcedb?application_name=airflow_sourcedb
     # HttpOperator (deferrable): host с «://» — полный base URL (см. HttpHook.get_conn).
     AIRFLOW_CONN_HTTP_OPEN_METEO: '{"conn_type":"http","host":"https://api.open-meteo.com"}'
     # Опционально: суперпользователь кластера (psql / отладка; не использовать в прод DAG).
-    AIRFLOW_CONN_POSTGRES_BROWSE: postgresql://postgres:postgres@postgres:5432/postgres
+    AIRFLOW_CONN_POSTGRES_BROWSE: postgresql://postgres:postgres@postgres:5432/postgres?application_name=airflow_postgres_browse
     # --- Variables (Admin → Variables; имя = суффикс после AIRFLOW_VAR_)
     AIRFLOW_VAR_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     AIRFLOW_VAR_OPEN_DATA_CONFIG_DIR: /opt/airflow/config
@@ -133,6 +134,18 @@ services:
       - pg_stat_statements.max=10000
       - -c
       - pg_stat_statements.track=all
+      # Аудит: каждый выполненный SQL в stderr контейнера (docker compose logs postgres).
+      # user=%u — роль Postgres; db=%d — БД; app=%a — application_name из строки подключения; client=%r — адрес клиента.
+      - -c
+      - log_statement=all
+      - -c
+      - log_connections=on
+      - -c
+      - log_disconnections=on
+      - -c
+      - log_hostname=on
+      - -c
+      - "log_line_prefix=%m [%p] user=%u db=%d app=%a client=%r "
       # Debezium (pgoutput): логическая репликация, несколько слотов на кластер.
       - -c
       - wal_level=logical

@@ -1,14 +1,14 @@
 TRUNCATE TABLE stg.cbr_fx_rates;
 
-WITH latest_payload AS (
-    SELECT payload
+-- По одному снимку на календарный день (последний loaded_at при дублях); raw может содержать
+-- архивные дни (src_cbr_ingestion с workshop_ods_backfill) и текущий daily_json.js.
+WITH best_per_day AS (
+    SELECT DISTINCT ON ((payload->>'Date')::timestamptz::date)
+        (payload->>'Date')::timestamptz::date AS rate_date,
+        payload
     FROM raw.cbr_daily_payloads
-    ORDER BY loaded_at DESC
-    LIMIT 1
-),
-cbr_date AS (
-    SELECT (payload ->> 'Date')::TIMESTAMPTZ::DATE AS rate_date
-    FROM latest_payload
+    WHERE source = 'CBR_DAILY'
+    ORDER BY (payload->>'Date')::timestamptz::date, loaded_at DESC
 )
 INSERT INTO stg.cbr_fx_rates (
     rate_date,
@@ -19,21 +19,20 @@ INSERT INTO stg.cbr_fx_rates (
     updated_at
 )
 SELECT
-    d.rate_date,
+    b.rate_date,
     rates.char_code,
     rates.nominal,
     rates.rate,
     rates.currency_name,
     NOW()
-FROM cbr_date d
+FROM best_per_day b
 CROSS JOIN LATERAL (
     SELECT
         kv.key AS char_code,
         (kv.value ->> 'Nominal')::INTEGER AS nominal,
         (kv.value ->> 'Value')::NUMERIC(18, 6) AS rate,
         kv.value ->> 'Name' AS currency_name
-    FROM latest_payload lp,
-         LATERAL jsonb_each(lp.payload -> 'Valute') kv
+    FROM jsonb_each(b.payload -> 'Valute') AS kv(key, value)
 
     UNION ALL
 

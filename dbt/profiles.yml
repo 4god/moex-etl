@@ -10,3 +10,6 @@ moex_workshop:
       dbname: workshop
       schema: analytics
       threads: 2
+      # Попадает в log_line_prefix Postgres как app=… (см. README, аудит SQL).
+      connect_args:
+        application_name: dbt_workshop

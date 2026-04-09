@@ -21,8 +21,15 @@ from common.pipeline_utils import (
 
 _LOG = logging.getLogger(__name__)
 
-OPEN_METEO_BASE = (
+OPEN_METEO_FORECAST = (
     "https://api.open-meteo.com/v1/forecast"
+    "?latitude=55.7558&longitude=37.6173"
+    "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max"
+    "&timezone=Europe%2FMoscow"
+)
+
+OPEN_METEO_ARCHIVE = (
+    "https://archive-api.open-meteo.com/v1/archive"
     "?latitude=55.7558&longitude=37.6173"
     "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max"
     "&timezone=Europe%2FMoscow"
@@ -30,18 +37,19 @@ OPEN_METEO_BASE = (
 
 
 def _open_meteo_url() -> str:
-    """При включённом backfill — расширяем окно через past_days (ограничение API ~92 дня)."""
+    """Без backfill — краткий forecast; с backfill — Archive API на всё окно (без лимита 92 дня)."""
     if not is_ods_backfill_enabled():
-        return OPEN_METEO_BASE + "&forecast_days=7"
+        return OPEN_METEO_FORECAST + "&forecast_days=7"
     floor = get_backfill_floor_date()
     today = utc_today()
-    ndays = min(max((today - floor).days + 1, 1), 92)
-    return OPEN_METEO_BASE + f"&forecast_days=7&past_days={ndays}"
+    return (
+        f"{OPEN_METEO_ARCHIVE}&start_date={floor.isoformat()}&end_date={today.isoformat()}"
+    )
 
 
 @dag(
     dag_id="src_meteo_ingestion",
-    description="Open-Meteo source DAG: API -> Kafka -> raw -> stg",
+    description="Open-Meteo: forecast или Archive API (при backfill) -> Kafka -> raw -> stg",
     start_date=datetime(2024, 1, 1),
     schedule="*/30 * * * *",
     catchup=False,

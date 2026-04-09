@@ -308,6 +308,35 @@ docker compose exec postgres psql -U etl -d workshop -c "SELECT city_code, versi
 
 </details>
 
+<details>
+<summary>Аудит SQL: кто выполнял, к какой БД, полный текст запроса</summary>
+
+В **`docker-compose.yml`** для сервиса **`postgres`** включено **серверное логирование каждого выполненного оператора**: `log_statement=all`, плюс `log_connections` / `log_disconnections`, префикс строки **`log_line_prefix`** с полями **`user=%u`** (роль PostgreSQL), **`db=%d`**, **`app=%a`** (`application_name` из клиента), **`client=%r`** (адрес клиента). Сообщения попадают в **stderr** контейнера.
+
+**Где смотреть журнал:**
+
+```bash
+docker compose logs -f postgres
+# или только последние строки:
+docker compose logs --tail=200 postgres
+```
+
+**Кто есть «кто»:** в логе видна **роль Postgres** (`user=…`). Для Airflow в URI подключений заданы **`application_name`** (`airflow_dwh`, `airflow_sourcedb`, …) — в префиксе будет **`app=airflow_dwh`** и т.д. У **dbt** в [`dbt/profiles.yml`](dbt/profiles.yml) — `application_name=dbt_workshop`. Подключения **Metabase** при провижининге задают JDBC **`ApplicationName=metabase_student_XX`** (см. [`scripts/provision_metabase.py`](scripts/provision_metabase.py)); запросы студентов всё равно идут от ролей **`workshop_student_XX`**.
+
+**Какая таблица:** в стандартном PostgreSQL **нет** отдельного столбца «список затронутых таблиц» на каждый оператор — в лог пишется **текст SQL**. По нему можно искать имена объектов, например:
+
+```bash
+docker compose logs postgres 2>&1 | rg 'FROM raw\.|JOIN stg\.|INTO datamart\.'
+```
+
+Для **строгого** построчного аудита DML по объектам обычно ставят расширения уровня **pgAudit** или внешний сбор — это уже не конфигурация «из коробки» в образе `postgres:16`.
+
+**Агрегаты без полного журнала по каждому вызову:** представление **`util.v_statement_log`** (над `pg_stat_statements`) — нормализованный текст, **роль**, **БД**, счётчики и время; удобно для «что чаще всего выполнялось», но не заменяет построчный лог выше. Подробнее — [§11](#11-аналитика-sql-журнал-сервера-и-pg_stat_statements).
+
+**Объём логов:** `log_statement=all` пишет и **SELECT**; в продакшене часто ослабляют до **`log_statement=mod`** (DDL + DML) или фильтруют на стороне сбора логов.
+
+</details>
+
 ---
 
 ## 6. Metabase (BI)
@@ -442,7 +471,7 @@ LIMIT 500;
 | Слой / DAG | Как избегаем дублей и повторной загрузки |
 |------------|------------------------------------------|
 | **raw** (все Kafka → Postgres из `consume_raw_to_postgres`) | Уникальность **`(source, endpoint_hash)`**, вставка **`ON CONFLICT DO NOTHING`** (`063_raw_payloads_endpoint_dedupe.sql`). |
-| **src_moex_ingestion**, **src_cbr_ingestion**, **src_meteo_ingestion** | Те же raw-правила; в логах extract — **`MOEX GET` / `CBR GET` / `Open-Meteo GET`** и ответ. **STG:** MOEX/CBR — `TRUNCATE` + `INSERT … ON CONFLICT DO UPDATE`; Meteo — `TRUNCATE` + вставка из **последнего** raw-снимка (`SRC-*`). Meteo при включённом backfill — параметр **`past_days`** (до 92) для окна от `workshop_ods_backfill_from`. |
+| **src_moex_ingestion**, **src_cbr_ingestion**, **src_meteo_ingestion** | Те же raw-правила; в логах extract — **`MOEX GET` / `CBR GET` / `Open-Meteo GET`** и ответ. **CBR:** при **`workshop_ods_backfill=true`** — цикл по **недостающим** датам, URL архива `…/archive/YYYY/MM/DD/daily_json.js` (см. `common/cbr_backfill.py`); иначе один запрос к **`daily_json.js`**. **STG CBR** (`SRC-120`): все дни из raw, по дню берётся последний `loaded_at`. **Meteo:** при backfill — **`archive-api.open-meteo.com/v1/archive`** с `start_date` / `end_date` от `workshop_ods_backfill_from` до сегодня; без backfill — forecast `forecast_days=7`. **STG Meteo** — по последнему raw-снимку (`SRC-130`). |
 | **ODS** (`WorkshopJsonToKafkaOperator`) | См. блок ODS выше: **gap_fill** vs **snapshot_replace**; логи **`ODS HTTP GET`** с полем **`mode`**. |
 | **ods_un_locations_fetch** | Перед страницами — задача **`purge_un_locations_snapshot`** (DELETE по `source` в `raw.ods_territory_payloads`). |
 | **ods_open_meteo_defer_fetch** | **`purge_open_meteo_public_snapshot`** перед публикацией в Kafka. |
@@ -540,12 +569,14 @@ docker compose --profile dbt run --rm -p 8081:8081 dbt dbt docs serve --host 0.0
 
 ---
 
-## 11. Аналитика SQL: pg_stat_statements
+## 11. Аналитика SQL: журнал сервера и pg_stat_statements
 
-В Postgres включён `pg_stat_statements`; в bootstrap — `050_pg_stat_statements.sql`, представление **`util.v_statement_log`**.
+**Построчный журнал каждого SQL** (текст запроса, роль, БД, `application_name`, клиент) — см. [§5](#5-postgresql-проверка-данных), блок **«Аудит SQL»**: `docker compose logs postgres`, параметры в `docker-compose.yml`.
+
+**Агрегированная статистика** (не каждый вызов отдельно, а суммарно по нормализованному тексту): в Postgres включён `pg_stat_statements`; в bootstrap — `050_pg_stat_statements.sql`, представление **`util.v_statement_log`** (`role_name`, `database_name`, `query_text`, `calls`, время).
 
 <details>
-<summary>Примеры запросов</summary>
+<summary>Примеры запросов к util.v_statement_log</summary>
 
 ```sql
 SELECT * FROM util.v_statement_log
