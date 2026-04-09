@@ -17,6 +17,7 @@
 
 Диаграммы находятся в:
 - `docs/architecture.md` (инструменты и поток всего проекта)
+- `docs/services-map.html` (интерактивная карта Docker-сервисов и портов — открыть в браузере)
 - `docs/data_model.md` (модель Data Vault)
 
 ## Структура проекта
@@ -45,6 +46,7 @@
 ├── docs/
 │   ├── architecture.md
 │   ├── data_model.md
+│   ├── services-map.html
 │   └── sphinx/
 │       ├── conf.py
 │       ├── index.rst

@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Карта сервисов — ETL Workshop</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --data: #3fb950;
+      --stream: #d29922;
+      --orch: #a371f7;
+      --bi: #f778ba;
+      --oneshot: #6e7681;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 1rem 1.25rem;
+      background: var(--panel);
+      border-bottom: 1px solid #30363d;
+    }
+    header h1 {
+      margin: 0 0 0.35rem 0;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    header p {
+      margin: 0;
+      font-size: 0.875rem;
+      color: var(--muted);
+      max-width: 72ch;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      align-items: center;
+      margin-top: 0.75rem;
+    }
+    .toolbar label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+    }
+    .toolbar input[type="text"] {
+      background: var(--bg);
+      border: 1px solid #30363d;
+      color: var(--text);
+      padding: 0.35rem 0.5rem;
+      border-radius: 6px;
+      min-width: 200px;
+      font-size: 0.8125rem;
+    }
+    .toolbar button {
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: var(--text);
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8125rem;
+    }
+    .toolbar button:hover { border-color: var(--accent); }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      min-height: 0;
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      aside { max-height: 40vh; }
+    }
+    #graph {
+      min-height: 480px;
+      background: #0d1117;
+      border-right: 1px solid #30363d;
+    }
+    aside {
+      background: var(--panel);
+      padding: 1rem;
+      overflow: auto;
+      font-size: 0.8125rem;
+    }
+    aside h2 {
+      margin: 0 0 0.5rem 0;
+      font-size: 0.9375rem;
+    }
+    aside .detail { color: var(--muted); line-height: 1.5; }
+    aside .detail strong { color: var(--text); }
+    aside code {
+      background: #0d1117;
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      word-break: break-all;
+    }
+    aside a { color: var(--accent); }
+    footer {
+      padding: 0.5rem 1.25rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      border-top: 1px solid #30363d;
+    }
+  </style>
+  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Интерактивная карта сервисов (Docker Compose)</h1>
+    <p>
+      Узлы можно перетаскивать, колесо мыши — масштаб. Клик по узлу — детали и ссылки.
+      На VM подставьте свой хост в поле ниже, чтобы открывать UI в браузере.
+    </p>
+    <div class="toolbar">
+      <label>
+        Базовый URL (хост):
+        <input type="text" id="baseHost" placeholder="localhost или IP VM" value="localhost" />
+      </label>
+      <button type="button" id="applyHost">Применить ссылки</button>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--data)"></span> Данные</span>
+        <span><span class="dot" style="background:var(--stream)"></span> Kafka / Connect</span>
+        <span><span class="dot" style="background:var(--orch)"></span> Airflow</span>
+        <span><span class="dot" style="background:var(--bi)"></span> BI / dbt</span>
+        <span><span class="dot" style="background:var(--oneshot)"></span> Одноразовые job</span>
+      </div>
+    </div>
+  </header>
+  <main>
+    <div id="graph"></div>
+    <aside>
+      <h2>Выберите сервис</h2>
+      <div id="detail" class="detail">
+        Кликните узел на графе. Пунктирные рёбра — логические потоки данных; сплошные — зависимости
+        <code>depends_on</code> в compose.
+      </div>
+    </aside>
+  </main>
+  <footer>
+    Файл <code>docs/services-map.html</code> — откройте в браузере локально или с VM (например через SFTP/клон репозитория).
+    Профили: <code>--profile bi</code> (Metabase), <code>--profile dbt</code> (контейнер dbt CLI).
+  </footer>
+
+  <script>
+    (function () {
+      const services = [
+        {
+          id: "postgres",
+          label: "PostgreSQL",
+          title: "workshop-postgres\nDWH + Airflow metadata",
+          group: "data",
+          port: 5432,
+          container: "workshop-postgres",
+          extra: "БД: postgres, airflow, workshop · пользователь DWH: etl/etl",
+        },
+        {
+          id: "bootstrap",
+          label: "bootstrap-apply",
+          title: "Одноразово: sql/bootstrap/*.sql",
+          group: "oneshot",
+          port: null,
+          container: "workshop-bootstrap-apply",
+          extra: "После postgres healthy; до Airflow init.",
+        },
+        {
+          id: "kafka",
+          label: "Kafka (KRaft)",
+          title: "workshop-kafka",
+          group: "stream",
+          port: 9092,
+          container: "workshop-kafka",
+          extra: "Bootstrap: kafka:9092 из других контейнеров",
+        },
+        {
+          id: "kafka-connect",
+          label: "Kafka Connect\n(Debezium)",
+          title: "workshop-kafka-connect",
+          group: "stream",
+          port: 8083,
+          container: "workshop-kafka-connect",
+          extra: "REST API коннекторов",
+        },
+        {
+          id: "kafka-ui",
+          label: "Kafka UI",
+          title: "workshop-kafka-ui",
+          group: "stream",
+          port: 8090,
+          container: "workshop-kafka-ui",
+          extra: "Внутри контейнера порт 8080",
+        },
+        {
+          id: "airflow-init",
+          label: "airflow-init",
+          title: "Миграции БД + admin",
+          group: "oneshot",
+          port: null,
+          container: "workshop-airflow-init",
+          extra: "Завершается успешно → старт webserver/scheduler",
+        },
+        {
+          id: "airflow-web",
+          label: "Airflow Webserver",
+          title: "UI оркестратора",
+          group: "orch",
+          port: 8080,
+          container: "workshop-airflow-webserver",
+          extra: "Логин по умолчанию admin/admin",
+        },
+        {
+          id: "airflow-sch",
+          label: "Airflow Scheduler",
+          title: "Планировщик DAG",
+          group: "orch",
+          port: null,
+          container: "workshop-airflow-scheduler",
+          extra: "Порт 8793 — log server задач (внутри сети)",
+        },
+        {
+          id: "metabase",
+          label: "Metabase",
+          title: "BI (profile bi)",
+          group: "bi",
+          port: 8085,
+          container: "workshop-metabase",
+          extra: "Только с docker compose --profile bi",
+        },
+        {
+          id: "dbt-docs",
+          label: "dbt docs",
+          title: "Документация моделей",
+          group: "bi",
+          port: 8081,
+          container: "workshop-dbt-docs",
+          extra: "Сервис dbt-docs в compose",
+        },
+        {
+          id: "dbt",
+          label: "dbt (CLI)",
+          title: "Контейнер dbt",
+          group: "bi",
+          port: null,
+          container: "workshop-dbt",
+          extra: "Профиль dbt; без постоянного порта",
+        },
+      ];
+
+      const colors = {
+        data: "#238636",
+        stream: "#9e6a03",
+        orch: "#8957e5",
+        bi: "#db61a2",
+        oneshot: "#6e7681",
+      };
+
+      const nodes = new vis.DataSet(
+        services.map((s) => ({
+          id: s.id,
+          label: s.label,
+          title: s.title,
+          color: { background: colors[s.group], border: "#30363d" },
+          font: { color: "#f0f6fc", size: 13 },
+          margin: 12,
+        }))
+      );
+
+      const edges = new vis.DataSet([
+        { from: "kafka-connect", to: "kafka", arrows: "to" },
+        { from: "kafka-ui", to: "kafka", arrows: "to" },
+        { from: "bootstrap", to: "postgres", arrows: "to" },
+        { from: "airflow-init", to: "postgres", arrows: "to" },
+        { from: "airflow-init", to: "kafka", arrows: "to" },
+        { from: "airflow-init", to: "bootstrap", arrows: "to" },
+        { from: "airflow-web", to: "airflow-init", arrows: "to" },
+        { from: "airflow-sch", to: "airflow-init", arrows: "to" },
+        { from: "metabase", to: "postgres", arrows: "to" },
+        { from: "metabase", to: "bootstrap", arrows: "to" },
+        { from: "dbt-docs", to: "postgres", arrows: "to" },
+        { from: "dbt-docs", to: "bootstrap", arrows: "to" },
+        { from: "dbt", to: "postgres", arrows: "to" },
+        { from: "dbt", to: "bootstrap", arrows: "to" },
+        {
+          from: "airflow-sch",
+          to: "kafka",
+          dashes: true,
+          color: { color: "#484f58" },
+          arrows: "to",
+          title: "DAG: Kafka producer/consumer",
+        },
+        {
+          from: "airflow-sch",
+          to: "postgres",
+          dashes: true,
+          color: { color: "#484f58" },
+          arrows: "to",
+          title: "DAG: SQL hooks → DWH",
+        },
+        {
+          from: "kafka-ui",
+          to: "kafka-connect",
+          dashes: true,
+          color: { color: "#484f58" },
+          arrows: "to",
+          title: "UI: просмотр Connect",
+        },
+      ]);
+
+      const container = document.getElementById("graph");
+      const data = { nodes, edges };
+      const options = {
+        physics: {
+          enabled: true,
+          solver: "forceAtlas2Based",
+          forceAtlas2Based: { gravitationalConstant: -38, springLength: 120 },
+        },
+        interaction: { hover: true, multiselect: false },
+        edges: { smooth: { type: "cubicBezier" } },
+      };
+      const network = new vis.Network(container, data, options);
+
+      const detailEl = document.getElementById("detail");
+      const baseInput = document.getElementById("baseHost");
+
+      function host() {
+        let h = (baseInput.value || "localhost").trim();
+        h = h.replace(/^https?:\/\//, "").replace(/\/$/, "");
+        return h || "localhost";
+      }
+
+      function link(port, path) {
+        if (port == null) return null;
+        const p = path || "";
+        return "http://" + host() + ":" + port + p;
+      }
+
+      function showDetail(id) {
+        const s = services.find((x) => x.id === id);
+        if (!s) return;
+        const url = link(s.port);
+        const lines = [
+          "<strong>" + s.title.replace(/\n/g, " · ") + "</strong>",
+          "Контейнер: <code>" + s.container + "</code>",
+        ];
+        if (s.port) {
+          lines.push('Порт на хосте: <code>' + s.port + '</code>');
+          lines.push(
+            url
+              ? '<a href="' + url + '" target="_blank" rel="noopener">' + url + "</a>"
+              : ""
+          );
+        }
+        lines.push(s.extra);
+        detailEl.innerHTML = lines.filter(Boolean).join("<br/><br/>");
+      }
+
+      network.on("click", function (p) {
+        if (p.nodes.length) showDetail(p.nodes[0]);
+      });
+
+      document.getElementById("applyHost").addEventListener("click", function () {
+        const sel = network.getSelectedNodes()[0];
+        if (sel) showDetail(sel);
+        else detailEl.innerHTML =
+          '<span class="detail">Базовый хост: <code>' +
+          host() +
+          "</code> — кликните сервис, чтобы обновить ссылки.</span>";
+      });
+    })();
+  </script>
+</body>
+</html>
