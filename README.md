@@ -17,7 +17,7 @@
 
 Диаграммы находятся в:
 - `docs/architecture.md` (инструменты и поток всего проекта)
-- `docs/services-map.html` (интерактивная карта Docker-сервисов и портов: открыть в браузере на **своём ПК**; если граф пустой — в каталоге `docs` запустить `python3 -m http.server 8765` и зайти на `http://localhost:8765/services-map.html`)
+- `docs/services-map.html` (интерактивная карта Docker-сервисов и портов) — открыть в браузере на **своём ПК**. Запуск статики **из корня клона** (рядом с `Makefile`): `make serve-docs` или `sh scripts/serve_docs.sh`, затем `http://localhost:8765/services-map.html`. Если `./scripts/serve_docs.sh: not found` — вы не в корне репозитория, нет файла после `git pull`, или мешают окончания строк Windows: используйте `make serve-docs` или одну строку `cd docs && python3 -m http.server 8765 --bind 0.0.0.0`. **С другого компьютера по IP VM** порт **8765** должен быть открыт в **security group**; иначе **SSH-туннель**: на VM держите сервер, на ПК `ssh -L 8765:127.0.0.1:8765 user@IP`, в браузере `http://localhost:8765/services-map.html`.
 - `docs/data_model.md` (модель Data Vault)
 
 ## Структура проекта
@@ -69,7 +69,8 @@
 │       └── postgres-source-template.json
 ├── scripts/
 │   ├── apply_bootstrap.sh   # вызывается сервисом bootstrap-apply в compose
-│   └── reset_stack.sh       # полный сброс томов + up (обёртка для make reset-db)
+│   ├── reset_stack.sh       # полный сброс томов + up (обёртка для make reset-db)
+│   └── serve_docs.sh        # HTTP для docs/services-map.html (порт 8765, bind 0.0.0.0)
 ├── sql/
 │   ├── bootstrap/
 │   │   ├── README.md
