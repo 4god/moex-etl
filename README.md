@@ -139,12 +139,16 @@ docker network prune -f
 docker compose up -d --build --remove-orphans
 ```
 
-Если ошибка повторяется, подними сеть по шагам (как в CI): сначала Kafka и Postgres, дождись `healthy` в `docker compose ps`, затем остальное:
+Если ошибка повторяется, подними сеть по шагам (как в CI): сначала Kafka и Postgres, дождись `healthy`, затем **сервисы по одному** — иначе часто падает на следующем контейнере после `airflow-scheduler` / `kafka-connect`:
 
 ```bash
 docker compose up -d kafka postgres
-# когда оба healthy:
-COMPOSE_PARALLEL_LIMIT=1 docker compose up -d --build --remove-orphans
+# дождись healthy у kafka и postgres, затем по очереди:
+for s in kafka-connect kafka-ui bootstrap-apply airflow-init \
+         airflow-webserver airflow-scheduler airflow-triggerer dbt-docs; do
+  docker compose up -d --build --remove-orphans "$s"
+  sleep 2
+done
 ```
 
 На macOS/Windows при повторении сбрось Docker (Restart Docker Desktop / «Clean / Purge data» в крайнем случае).
