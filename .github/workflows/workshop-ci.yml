@@ -232,6 +232,8 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
+          # compose_deploy_up: build + последовательный up + Metabase; дефолт ssh-action (~10m) режет по «Run Command Timeout».
+          command_timeout: 60m
           script_stop: true
           script: |
             set -euo pipefail

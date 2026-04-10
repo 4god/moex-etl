@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Устойчивый подъём стека для VM/CI: снимает «битую» сеть Docker, ограничивает параллелизм,
-# поднимает сервисы в том же порядке, что и smoke в workshop-ci.yml (меньше гонок с Metabase).
+# Устойчивый подъём стека для VM/CI: перед up — down (чистая сеть), COMPOSE_PARALLEL_LIMIT=1,
+# затем два шага без лишних перезапусков: (1) kafka+postgres healthy, (2) один docker compose up — Compose
+# сам соблюдает depends_on, bootstrap-apply не дёргается заново на каждом сервисе.
 #
 # Из корня репозитория: bash scripts/compose_deploy_up.sh
-# Переменные: COMPOSE_DEPLOY_ATTEMPTS (по умолчанию 3), COMPOSE_DEPLOY_SERIAL (1 = последовательно, 0 = один up),
+# Переменные: COMPOSE_DEPLOY_ATTEMPTS (по умолчанию 3),
+#             COMPOSE_DEPLOY_SERIAL (1 = два шага kafka/postgres + полный up; 0 = сразу один up без ожидания),
 #             STACK_PROFILES (по умолчанию --profile bi), COMPOSE_PARALLEL_LIMIT (по умолчанию 1).
 set -euo pipefail
 
@@ -39,19 +41,11 @@ wait_kafka_postgres() {
   done
 }
 
-compose_up_serial() {
+compose_up_two_phase() {
   wait_kafka_postgres
-  local svc
-  for svc in kafka-connect kafka-ui bootstrap-apply airflow-init workshop-provision-airflow \
-             airflow-webserver airflow-scheduler airflow-triggerer dbt-docs; do
-    echo "=== docker compose up -d --remove-orphans $svc ==="
-    docker compose up -d --remove-orphans "$svc"
-    sleep 2
-  done
-  if [[ "$STACK_PROFILES" == *bi* ]]; then
-    echo "=== docker compose --profile bi up -d --remove-orphans metabase workshop-provision-metabase ==="
-    docker compose --profile bi up -d --remove-orphans metabase workshop-provision-metabase
-  fi
+  echo "=== docker compose ${STACK_PROFILES} up -d --remove-orphans (один проход) ==="
+  # shellcheck disable=SC2086
+  docker compose ${STACK_PROFILES} up -d --remove-orphans
 }
 
 wait_bootstrap_apply_ok() {
@@ -76,10 +70,11 @@ wait_bootstrap_apply_ok() {
 
 one_attempt() {
   if [[ "$SERIAL" == "1" ]]; then
-    compose_up_serial
+    compose_up_two_phase
   else
+    echo "=== docker compose ${STACK_PROFILES} up -d --remove-orphans (без отдельного ожидания kafka/postgres) ==="
     # shellcheck disable=SC2086
-    docker compose ${STACK_PROFILES} up -d --build --remove-orphans
+    docker compose ${STACK_PROFILES} up -d --remove-orphans
   fi
   wait_bootstrap_apply_ok
 }
