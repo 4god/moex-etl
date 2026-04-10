@@ -242,6 +242,4 @@ jobs:
             echo "=== sql/bootstrap на хосте (должны быть *.sql; иначе bootstrap-apply получит пустой том) ==="
             ls -la sql/bootstrap/ || { echo "ERROR: нет sql/bootstrap — VM_DEPLOY_PATH должен указывать на корень клона репозитория"; exit 1; }
             VM_INSTALL_NONINTERACTIVE=1 bash scripts/vm_install_host_tools.sh
-            docker compose build
-            docker compose --profile bi up -d
-            docker compose exec -T airflow-scheduler airflow dags reserialize || true
+            bash scripts/compose_deploy_up.sh

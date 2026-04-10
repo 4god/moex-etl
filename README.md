@@ -662,7 +662,7 @@ git push -u origin workshop/moex-etl
 
 Файл: [`.github/workflows/workshop-ci.yml`](.github/workflows/workshop-ci.yml). В Actions: **Workshop CI**.
 
-Кратко: при push в `workshop/moex-etl` сначала при необходимости гоняется **полный smoke** в CI (docker compose с нуля), затем **деплой на VPS** по SSH (`git pull`, `docker compose build`, `up`). Деплой **ждёт** окончания smoke, если тот запускался; повторные деплои **отменяют** предыдущие деплои, но **не** отменяют чужой smoke (разные `concurrency`-группы). Ручной запуск: **Run workflow**.
+Кратко: при push в `workshop/moex-etl` сначала при необходимости гоняется **полный smoke** в CI (docker compose с нуля), затем **деплой на VPS** по SSH: `git pull` и [`scripts/compose_deploy_up.sh`](scripts/compose_deploy_up.sh) (`down` профилей `bi`+`dbt`, `build`, **последовательный** `up` как в smoke, до **3 попыток** с `down` между ними, проверка `bootstrap-apply`, `airflow dags reserialize`). Локально или на VM: `make deploy-up` или `bash scripts/compose_deploy_up.sh`. Ускоренный режим: `COMPOSE_DEPLOY_SERIAL=0` (один общий `up --build`). Деплой **ждёт** окончания smoke, если тот запускался; повторные деплои **отменяют** предыдущие деплои, но **не** отменяют чужой smoke (разные `concurrency`-группы). Ручной запуск: **Run workflow**.
 
 **Secrets / Variables:** `VM_HOST`, `VM_USER`, `VM_SSH_KEY`, `VM_DEPLOY_PATH` (путь к клону на сервере). На VM при деплое: [`scripts/vm_install_host_tools.sh`](scripts/vm_install_host_tools.sh) (`make` / `psql` на хосте; нужен `sudo -n` или один раз вручную `sudo ./scripts/vm_install_host_tools.sh`).
 

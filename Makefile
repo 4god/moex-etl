@@ -1,4 +1,4 @@
-.PHONY: docs-sphinx docs-lineage dbt-run dbt-test up up-fast up-clean down reset-db apply-bootstrap provision-students reload-airflow serve-docs
+.PHONY: docs-sphinx docs-lineage dbt-run dbt-test up up-fast up-clean deploy-up down reset-db apply-bootstrap provision-students reload-airflow serve-docs
 
 # Профиль BI (Metabase): по умолчанию как в README. Для минимального стека: make up STACK_PROFILES=
 STACK_PROFILES ?= --profile bi
@@ -17,6 +17,10 @@ down:
 # После ошибки Docker «failed to set up container networking: network … not found» — пересоздать стек.
 up-clean: down
 	docker compose $(STACK_PROFILES) up -d --build
+
+# Устойчивый подъём (как деплой в CI): последовательный up, ретраи — см. scripts/compose_deploy_up.sh
+deploy-up:
+	bash scripts/compose_deploy_up.sh
 
 # Рестарт процессов Airflow (редко: новые DAG и так подхватываются scheduler'ом с диска).
 reload-airflow:
